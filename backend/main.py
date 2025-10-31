@@ -73,30 +73,68 @@ async def health_check():
     from datetime import datetime
     
     def get_gpu_memory_info():
-        """获取GPU显存信息"""
+        """获取GPU显存信息（支持多卡），返回汇总与逐卡数据"""
         try:
-            # 执行nvidia-smi命令获取显存信息
+            # 查询多卡显存与利用率信息
             result = subprocess.run([
-                'nvidia-smi', 
-                '--query-gpu=memory.used,memory.total', 
+                'nvidia-smi',
+                '--query-gpu=index,name,memory.used,memory.total,utilization.gpu',
                 '--format=csv,noheader,nounits'
             ], capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                if lines and lines[0]:
-                    # 取第一个GPU的信息
-                    memory_info = lines[0].split(', ')
-                    if len(memory_info) == 2:
-                        used_mb = int(memory_info[0])
-                        total_mb = int(memory_info[1])
-                        usage_percent = (used_mb / total_mb) * 100
-                        return {
-                            "gpu_memory_usage": f"{usage_percent:.1f}%",
-                            "gpu_memory_total": f"{total_mb // 1024}GB"
-                        }
-            return {}
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, ValueError):
+
+            if result.returncode != 0:
+                return {}
+
+            lines = [ln.strip() for ln in result.stdout.strip().split('\n') if ln.strip()]
+            if not lines:
+                return {}
+
+            cards = []
+            total_mb = 0
+            used_mb = 0
+            for ln in lines:
+                parts = [p.strip() for p in ln.split(',')]
+                # 期望: index, name, used(MB), total(MB), utilization(%)
+                if len(parts) < 5:
+                    # 兼容部分环境输出带空格分隔
+                    parts = [p.strip() for p in ln.split(', ')]
+                if len(parts) >= 5:
+                    try:
+                        idx = int(parts[0])
+                        name = parts[1]
+                        used = int(parts[2])
+                        total = int(parts[3])
+                        util = float(parts[4])
+                    except ValueError:
+                        # 输出格式异常时跳过该行
+                        continue
+
+                    percent = (used / total) * 100 if total > 0 else 0.0
+                    cards.append({
+                        "index": idx,
+                        "name": name,
+                        "memory_used_mb": used,
+                        "memory_total_mb": total,
+                        "percent": round(percent, 1),
+                        "utilization_percent": round(util, 1),
+                    })
+                    total_mb += total
+                    used_mb += used
+
+            if not cards:
+                return {}
+
+            usage_percent = (used_mb / total_mb) * 100 if total_mb > 0 else 0.0
+            return {
+                # 汇总（保持原有字段以兼容前端）
+                "gpu_memory_usage": f"{usage_percent:.1f}%",
+                "gpu_memory_total": f"{total_mb // 1024}GB",
+                # 逐卡数据
+                "gpus": cards,
+                # 平均利用率（简单平均）
+                "gpu_percent_avg": round(sum(c.get("percent", 0) for c in cards) / len(cards), 1)
+            }
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
             # nvidia-smi不存在或执行失败，返回空字典
             return {}
     
