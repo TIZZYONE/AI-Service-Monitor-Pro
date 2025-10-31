@@ -16,14 +16,14 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时初始化数据库
     await init_db()
-    
+
     # 启动任务调度器
     scheduler = TaskScheduler()
     app.state.scheduler = scheduler
     await scheduler.start()
-    
+
     yield
-    
+
     # 关闭时停止调度器
     await scheduler.stop()
 
@@ -42,13 +42,11 @@ app.add_middleware(
         "http://localhost:3456",
         "http://127.0.0.1:3456",
         "http://0.0.0.0:3456",
-        "http://localhost:3457",
-        "http://127.0.0.1:3457",
-        "http://0.0.0.0:3457",
+        "http://172.17.103.72:3456",
         "http://localhost:8633",
         "http://127.0.0.1:8633",
         "http://0.0.0.0:8633"
-    ], 
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -71,7 +69,7 @@ async def health_check():
     import psutil
     import subprocess
     from datetime import datetime
-    
+
     def get_gpu_memory_info():
         """获取GPU显存信息（支持多卡），返回汇总与逐卡数据"""
         try:
@@ -137,29 +135,29 @@ async def health_check():
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
             # nvidia-smi不存在或执行失败，返回空字典
             return {}
-    
+
     try:
         # 获取系统资源使用情况
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
-        
+
         # 获取GPU显存信息
         gpu_info = get_gpu_memory_info()
-        
+
         # 构建系统信息
         system_info = {
             "cpu_usage": f"{cpu_percent}%",
             "memory_usage": f"{memory.percent}%",
             "disk_usage": f"{disk.percent}%",
-            "memory_total": f"{memory.total // (1024**3)}GB",
-            "disk_total": f"{disk.total // (1024**3)}GB"
+            "memory_total": f"{memory.total // (1024 ** 3)}GB",
+            "disk_total": f"{disk.total // (1024 ** 3)}GB"
         }
-        
+
         # 如果有GPU信息，添加到系统信息中
         if gpu_info:
             system_info.update(gpu_info)
-        
+
         return {
             "status": "ok",
             "timestamp": datetime.now().isoformat(),
@@ -182,6 +180,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8633,
-        reload=True,
+        # reload=True,
         log_level="info"
     )

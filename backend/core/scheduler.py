@@ -63,9 +63,10 @@ class TaskScheduler:
             return 'powershell -Command "& { conda shell.powershell hook | Out-String | Invoke-Expression }"'
         elif system in ["linux", "darwin"]:  # Linux或macOS
             # Bash环境
-            conda_base = os.environ.get('CONDA_EXE', 'conda')
-            conda_base_dir = os.path.dirname(os.path.dirname(conda_base)) if conda_base != 'conda' else '/opt/conda'
-            return f'source {conda_base_dir}/etc/profile.d/conda.sh'
+            # conda_base = os.environ.get('CONDA_EXE', 'conda')
+            # conda_base_dir = os.path.dirname(os.path.dirname(conda_base)) if conda_base != 'conda' else '/opt/conda'
+            # return f'source {conda_base_dir}/etc/profile.d/conda.sh'
+            return 'eval "$(conda shell.bash hook)"'
         else:
             # 默认尝试直接使用conda命令
             return 'eval "$(conda shell.bash hook)"'
