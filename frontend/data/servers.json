@@ -1,0 +1,9 @@
+[
+  {
+    "id": "local",
+    "name": "本地服务器",
+    "host": "localhost",
+    "port": 8633,
+    "description": "本地开发环境"
+  }
+]
