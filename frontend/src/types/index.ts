@@ -14,6 +14,15 @@ export interface Server {
     disk_total: string
     gpu_memory_usage?: string
     gpu_memory_total?: string
+    gpu_percent_avg?: number
+    gpus?: {
+      index: number
+      name?: string
+      memory_used_mb?: number
+      memory_total_mb?: number
+      percent?: number
+      utilization_percent?: number
+    }[]
   }
   service?: string
   version?: string

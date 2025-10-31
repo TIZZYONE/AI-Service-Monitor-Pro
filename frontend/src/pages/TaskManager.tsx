@@ -170,7 +170,7 @@ const TaskManager: React.FC = () => {
       <Space direction="vertical" style={{ width: '100%' }} size="large">
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Title level={2}>任务管理</Title>
+          <Title level={2} style={{ margin: 0 }}>任务管理</Title>
           <Space>
             <Button 
               icon={<ReloadOutlined />} 

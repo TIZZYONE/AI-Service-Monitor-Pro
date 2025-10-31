@@ -10,7 +10,13 @@ const { Title } = Typography
 const App: React.FC = () => {
   return (
     <Layout>
-      <Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px' }}>
+      <Header style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        padding: '0 24px', 
+        background: 'linear-gradient(90deg, #0d1f2d 0%, #111827 100%)',
+        borderBottom: '1px solid rgba(255,255,255,0.08)'
+      }}>
         <Title level={3} style={{ color: 'white', margin: 0 }}>
           任务管理系统
         </Title>

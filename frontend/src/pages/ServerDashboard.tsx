@@ -59,6 +59,17 @@ const ServerDashboard: React.FC = () => {
     }
   }
 
+  // Ribbon颜色映射（用于状态标识）
+  const getRibbonColor = (status: string) => {
+    switch (status) {
+      case 'online': return '#10a37f'
+      case 'offline': return 'grey'
+      case 'maintenance': return 'gold'
+      case 'error': return 'volcano'
+      default: return 'blue'
+    }
+  }
+
   // 进入服务器管理
   const enterServer = (serverId: string) => {
     navigate(`/servers/${serverId}/tasks`)
@@ -120,6 +131,7 @@ const ServerDashboard: React.FC = () => {
       <Row gutter={[16, 16]}>
         {servers.map((server) => (
           <Col xs={24} sm={12} lg={8} xl={6} key={server.id}>
+            <Badge.Ribbon text={getStatusText(server.status)} color={getRibbonColor(server.status)}>
             <Card
               hoverable
               actions={[
@@ -157,7 +169,9 @@ const ServerDashboard: React.FC = () => {
                 cursor: server.status === 'online' ? 'pointer' : 'default',
                 height: '450px',
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                borderRadius: 12,
+                boxShadow: '0 12px 24px rgba(16, 163, 127, 0.06)'
               }}
               bodyStyle={{ 
                 flex: 1,
@@ -168,7 +182,7 @@ const ServerDashboard: React.FC = () => {
               }}
             >
               <div style={{ textAlign: 'center' }}>
-                <CloudServerOutlined style={{ fontSize: '48px', color: '#1890ff', marginBottom: '16px' }} />
+                <CloudServerOutlined style={{ fontSize: '48px', color: '#10a37f', marginBottom: '16px' }} />
                 <Title level={4} style={{ marginBottom: '8px' }}>{server.name}</Title>
                 <Badge 
                   status={getStatusColor(server.status)} 
@@ -224,6 +238,7 @@ const ServerDashboard: React.FC = () => {
                 </div>
               </div>
             </Card>
+            </Badge.Ribbon>
           </Col>
         ))}
       </Row>

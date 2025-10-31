@@ -128,12 +128,12 @@ const ServerTaskManager: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: '16px 24px' }}>
       {/* 页面头部 */}
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <Title level={2} style={{ margin: 0 }}>
-            {serverConfigState.name} - 任务管理
+          <Title level={3} style={{ margin: 0, color: '#0f172a', fontWeight: 600 }}>
+            {serverConfigState.name} · 任务管理
           </Title>
         </div>
         <Space>
@@ -153,7 +153,7 @@ const ServerTaskManager: React.FC = () => {
 
       {/* 任务列表 */}
       <Spin spinning={loading}>
-        <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))' }}>
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
           {tasks.map((task) => (
             <TaskCard
               key={task.id}

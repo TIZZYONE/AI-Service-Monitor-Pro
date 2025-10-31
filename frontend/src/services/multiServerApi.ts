@@ -40,10 +40,15 @@ export class MultiServerApiClient {
   // 服务器健康检查
   async checkServerHealth(serverId: string): Promise<{ status: string; message?: string }> {
     try {
+      // 为健康检查增加超时，避免离线服务器长时间阻塞
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 3000)
       const result = await this.request<{ status: string; message?: string }>(
         serverId,
-        '/health'
+        '/health',
+        { signal: controller.signal }
       )
+      clearTimeout(timeoutId)
       return result
     } catch (error) {
       return { status: 'error', message: error instanceof Error ? error.message : '未知错误' }
