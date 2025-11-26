@@ -113,16 +113,6 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
     }
   })
 
-  // 当任务切换时，立即断开旧的WebSocket连接
-  useEffect(() => {
-    return () => {
-      // 组件卸载或任务切换时断开连接
-      if (disconnect) {
-        disconnect()
-      }
-    }
-  }, [selectedTaskId, disconnect])
-
   // 加载日志文件内容
   const loadLogContent = async (logPath: string) => {
     if (!serverId || !selectedTaskId) return
@@ -145,7 +135,7 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
     loadLogContent(logPath)
   }
 
-  // 当任务ID改变时重置状态
+  // 当任务ID改变时重置状态（URL变化会自动触发WebSocket重连）
   useEffect(() => {
     // 立即清空日志内容，避免显示旧任务的日志
     setLogContent('')
