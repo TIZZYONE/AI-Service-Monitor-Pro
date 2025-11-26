@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Button, Typography, Space, message, Spin, Modal } from 'antd'
-     import { ThunderboltOutlined } from '@ant-design/icons'
+import { ThunderboltOutlined, ReloadOutlined, PlusOutlined, CheckSquareOutlined } from '@ant-design/icons'
 import TaskCard from '../components/TaskCard'
 import TaskForm from '../components/TaskForm'
 import { Task, TaskCreate, TaskUpdate } from '../types'
@@ -149,21 +149,33 @@ const ServerTaskManager: React.FC = () => {
     })
   }
 
-  const handleBatchStart = async () => {
+
+  if (!serverConfigState) {
+    return <div>服务器不存在</div>
+  }
+
+  const handleSelectAll = () => {
+    if (selectedTaskIds.size === tasks.length) {
+      // 如果已全选，则取消全选
+      setSelectedTaskIds(new Set())
+    } else {
+      // 否则全选所有任务
+      setSelectedTaskIds(new Set(tasks.map(task => task.id)))
+    }
+  }
+
+  const handleStartAll = async () => {
     if (!serverId) return
 
-    if (selectedTaskIds.size === 0) {
-      message.warning('请先选择要启动的任务')
-      return
-    }
-
-    // 过滤出未运行的任务
-    const tasksToStart = tasks.filter(
-      task => selectedTaskIds.has(task.id) && task.status !== 'running'
-    )
+    // 如果没有选择任务，启动所有未运行的任务
+    const tasksToStart = selectedTaskIds.size === 0
+      ? tasks.filter(task => task.status !== 'running')
+      : tasks.filter(task => selectedTaskIds.has(task.id) && task.status !== 'running')
 
     if (tasksToStart.length === 0) {
-      message.warning('所选任务中没有可启动的任务（所有任务都在运行中）')
+      message.warning(selectedTaskIds.size === 0 
+        ? '所有任务都在运行中' 
+        : '所选任务中没有可启动的任务（所有任务都在运行中）')
       return
     }
 
@@ -203,37 +215,41 @@ const ServerTaskManager: React.FC = () => {
     }
   }
 
-  if (!serverConfigState) {
-    return <div>服务器不存在</div>
-  }
-
   return (
     <div style={{ padding: '16px 24px' }}>
       {/* 页面头部 */}
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <Title level={3} style={{ margin: 0, color: '#0f172a', fontWeight: 600 }}>
-            {serverConfigState.name} · 任务管理
-          </Title>
-        </div>
+      <div style={{ marginBottom: 16 }}>
+        <Title level={3} style={{ margin: 0, color: '#0f172a', fontWeight: 600, marginBottom: 16 }}>
+          {serverConfigState.name} · 任务管理
+        </Title>
         <Space>
-          {selectedTaskIds.size > 0 && (
-            <Button 
-              type="primary"
-              icon={<ThunderboltOutlined />}
-              onClick={handleBatchStart}
-              loading={batchStarting}
-            >
-              一键启动 ({selectedTaskIds.size})
-            </Button>
-          )}
           <Button 
             type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={handleStartAll}
+            loading={batchStarting}
+          >
+            一键启动{selectedTaskIds.size > 0 ? ` (${selectedTaskIds.size})` : ''}
+          </Button>
+          <Button 
+            icon={<CheckSquareOutlined />}
+            onClick={handleSelectAll}
+            type={selectedTaskIds.size === tasks.length && tasks.length > 0 ? 'primary' : 'default'}
+          >
+            {selectedTaskIds.size === tasks.length && tasks.length > 0 ? '取消全选' : '全选'}
+          </Button>
+          <Button 
+            type="primary"
+            icon={<PlusOutlined />}
             onClick={handleCreateTask}
           >
             创建任务
           </Button>
-          <Button onClick={loadTasks} loading={loading}>
+          <Button 
+            icon={<ReloadOutlined />}
+            onClick={loadTasks} 
+            loading={loading}
+          >
             刷新
           </Button>
         </Space>
