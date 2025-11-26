@@ -37,6 +37,8 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
   const logContainerRef = useRef<HTMLDivElement>(null)
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const userScrollingRef = useRef(false)
+  // 使用 ref 跟踪当前任务ID，确保消息处理时使用最新的任务ID
+  const currentTaskIdRef = useRef<number | undefined>(selectedTaskId)
 
   // 过滤日志
   const filteredLogs = selectedTaskId 
@@ -53,22 +55,49 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
       })()
     : null
 
+  // 更新当前任务ID的ref
+  useEffect(() => {
+    currentTaskIdRef.current = selectedTaskId
+  }, [selectedTaskId])
+
   const { isConnected, reconnectCount } = useWebSocket(wsUrl, {
     onMessage: (data) => {
-      if (data.type === 'initial_log') {
-        // 初始日志内容，直接设置
-        setLogContent(data.content)
-      } else if (data.type === 'log_update') {
-        // 增量日志内容，追加到现有内容
-        setLogContent(prev => prev + data.content)
-      } else if (data.type === 'status_update') {
-        console.log('Task status updated:', data.status)
-      } else if (data.type === 'error') {
-        console.error('WebSocket error message:', data.message)
+      try {
+        // 验证消息是否属于当前选中的任务
+        // 如果任务ID不匹配，忽略此消息（可能是旧连接的消息）
+        if (data.task_id !== undefined && data.task_id !== currentTaskIdRef.current) {
+          console.debug(`忽略不属于当前任务的消息: task_id=${data.task_id}, current=${currentTaskIdRef.current}`)
+          return
+        }
+
+        // 处理已知的消息类型
+        if (data.type === 'initial_log') {
+          // 初始日志内容，直接设置（确保是当前任务的消息）
+          setLogContent(data.content || '')
+        } else if (data.type === 'log_update') {
+          // 增量日志内容，追加到现有内容（确保是当前任务的消息）
+          setLogContent(prev => prev + (data.content || ''))
+        } else if (data.type === 'log_file_rotated') {
+          // 日志文件轮转通知（新功能，前端不更新时会被忽略但不影响功能）
+          console.log('日志文件已轮转:', data.message || '日志文件已切换')
+          // 后端已经发送了新文件的initial_log，前端会自动显示新内容
+        } else if (data.type === 'status_update') {
+          console.log('Task status updated:', data.status)
+        } else if (data.type === 'error') {
+          console.error('WebSocket error message:', data.message || '未知错误')
+        } else {
+          // 未知的消息类型，静默忽略（保证向后兼容）
+          console.debug('收到未知WebSocket消息类型:', data.type)
+        }
+      } catch (error) {
+        // 防止消息处理出错导致WebSocket断开
+        console.error('处理WebSocket消息时出错:', error)
       }
     },
     onOpen: () => {
       console.log('WebSocket connected for task:', selectedTaskId)
+      // 连接建立时立即清空日志内容，避免显示旧任务的日志
+      setLogContent('')
     },
     onClose: () => {
       console.log('WebSocket disconnected for task:', selectedTaskId)
@@ -102,8 +131,11 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
 
   // 当任务ID改变时重置状态
   useEffect(() => {
-    setSelectedLogPath('')
+    // 立即清空日志内容，避免显示旧任务的日志
     setLogContent('')
+    setSelectedLogPath('')
+    // 重置自动滚动
+    setAutoScroll(true)
   }, [selectedTaskId])
 
   // 自动加载最新日志文件（仅在没有手动选择时）

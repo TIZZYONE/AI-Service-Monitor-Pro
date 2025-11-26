@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Layout, Menu, Typography, Breadcrumb, Button, Tag, Popover, List } from 'antd'
+import { Layout, Menu, Typography, Breadcrumb, Button, Tag, Popover, List, Tooltip } from 'antd'
 import { AppstoreOutlined, FileTextOutlined, ArrowLeftOutlined, DashboardOutlined, HddOutlined, ThunderboltOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import ServerTaskManager from '../pages/ServerTaskManager'
 import ServerLogViewer from '../pages/ServerLogViewer'
@@ -17,13 +17,18 @@ const ServerLayout: React.FC = () => {
   const { serverId } = useParams<{ serverId: string }>()
   const [server, setServer] = useState<Server | null>(null)
   const [loading, setLoading] = useState(true)
+  const isFirstLoadRef = useRef(true)
 
   useEffect(() => {
     const loadServerInfo = async () => {
       if (!serverId) return
       
       try {
-        setLoading(true)
+        // 首次加载时显示loading，后续刷新时不显示
+        if (isFirstLoadRef.current) {
+          setLoading(true)
+          isFirstLoadRef.current = false
+        }
         const serverInfo = await multiServerApi.getServerInfo(serverId)
         setServer(serverInfo)
       } catch (error) {
@@ -33,7 +38,21 @@ const ServerLayout: React.FC = () => {
       }
     }
 
+    // 重置首次加载标志
+    isFirstLoadRef.current = true
+
+    // 立即加载一次
     loadServerInfo()
+
+    // 每10秒刷新一次系统信息（CPU、GPU等）
+    const interval = setInterval(() => {
+      loadServerInfo()
+    }, 10000) // 10秒
+
+    // 清理定时器
+    return () => {
+      clearInterval(interval)
+    }
   }, [serverId])
 
   const menuItems = [
@@ -106,9 +125,31 @@ const ServerLayout: React.FC = () => {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               {server.status === 'online' && server.system ? (
                 <>
-                  <Tag style={{ background: '#ecfdf5', borderColor: '#d1fae5', color: '#065f46', borderRadius: 16, padding: '2px 10px', fontSize: 12 }}>
-                    <DashboardOutlined style={{ marginRight: 6 }} />CPU {server.system.cpu_usage}
-                  </Tag>
+                  <Tooltip
+                    title={
+                      <div>
+                        <div>CPU使用率: {server.system?.cpu_usage || 'N/A'}</div>
+                        {server.system?.cpu_count_physical && (
+                          <div>物理核心: {server.system.cpu_count_physical}核</div>
+                        )}
+                        {server.system?.cpu_count_logical && (
+                          <div>逻辑核心: {server.system.cpu_count_logical}核</div>
+                        )}
+                        {server.system?.cpu_freq_current_mhz != null && (
+                          <div>当前频率: {server.system.cpu_freq_current_mhz.toFixed(2)} MHz</div>
+                        )}
+                        {server.system?.cpu_freq_max_mhz != null && (
+                          <div>最大频率: {server.system.cpu_freq_max_mhz.toFixed(2)} MHz</div>
+                        )}
+                      </div>
+                    }
+                  >
+                    <Tag style={{ background: '#ecfdf5', borderColor: '#d1fae5', color: '#065f46', borderRadius: 16, padding: '2px 10px', fontSize: 12, cursor: 'help' }}>
+                      <DashboardOutlined style={{ marginRight: 6 }} />
+                      CPU {server.system?.cpu_usage || 'N/A'}
+                      {server.system?.cpu_count_logical && ` (${server.system.cpu_count_logical}核)`}
+                    </Tag>
+                  </Tooltip>
                   <Tag style={{ background: '#eff6ff', borderColor: '#dbeafe', color: '#1e3a8a', borderRadius: 16, padding: '2px 10px', fontSize: 12 }}>
                     {/* 内存：显示使用量/总量（若有） */}
                     <DashboardOutlined style={{ marginRight: 6 }} />内存 {server.system.memory_usage}
@@ -137,22 +178,76 @@ const ServerLayout: React.FC = () => {
                       const average = g.averagePercent !== undefined ? `${g.averagePercent.toFixed(1)}%` : server.system.gpu_memory_usage
                       const total = g.totalGB !== undefined ? `${g.totalGB.toFixed(2)}GB` : (server.system.gpu_memory_total || '')
                       const content = g.cards.length > 0 ? (
-                        <List
-                          size="small"
-                          dataSource={g.cards}
-                          renderItem={(item) => (
-                            <List.Item>
-                              <span style={{ fontWeight: 500 }}>GPU{item.index}</span>
-                               <span style={{ marginLeft: 8 }}>
-                                {item.usedGB !== undefined && item.totalGB !== undefined
-                                  ? `${item.usedGB.toFixed(2)}GB / ${item.totalGB.toFixed(2)}GB`
-                                  : ''}
-                                {item.percent !== undefined ? ` (${item.percent.toFixed(1)}%)` : ''}
-                              </span>
-                            </List.Item>
+                        <div style={{ minWidth: 320, maxWidth: 500 }}>
+                          {server.system?.gpu_driver_version && (
+                            <div style={{ padding: '8px 12px', borderBottom: '1px solid #e5e7eb', marginBottom: 8 }}>
+                              <div style={{ fontSize: 12, color: '#64748b' }}>驱动版本: <span style={{ fontWeight: 500, color: '#0f172a' }}>{server.system.gpu_driver_version}</span></div>
+                            </div>
                           )}
-                          style={{ minWidth: 260 }}
-                        />
+                          <List
+                            size="small"
+                            dataSource={g.cards}
+                            renderItem={(item: any) => {
+                              const card = server.system?.gpus?.find((gpu: any) => gpu.index === item.index)
+                              return (
+                                <List.Item style={{ padding: '12px', borderBottom: '1px solid #f3f4f6' }}>
+                                  <div style={{ width: '100%' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                      <span style={{ fontWeight: 600, fontSize: 14 }}>GPU {item.index}</span>
+                                      {card?.name && (
+                                        <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{card.name}</span>
+                                      )}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.8 }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>显存:</span>
+                                        <span style={{ fontWeight: 500 }}>
+                                          {item.usedGB !== undefined && item.totalGB !== undefined
+                                            ? `${item.usedGB.toFixed(2)}GB / ${item.totalGB.toFixed(2)}GB`
+                                            : 'N/A'}
+                                          {item.percent !== undefined ? ` (${item.percent.toFixed(1)}%)` : ''}
+                                        </span>
+                                      </div>
+                                      {card?.utilization_percent != null && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                          <span>GPU利用率:</span>
+                                          <span style={{ fontWeight: 500 }}>{card.utilization_percent.toFixed(1)}%</span>
+                                        </div>
+                                      )}
+                                      {card?.temperature_celsius != null && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                          <span>温度:</span>
+                                          <span style={{ fontWeight: 500, color: card.temperature_celsius > 80 ? '#dc2626' : card.temperature_celsius > 70 ? '#f59e0b' : '#059669' }}>
+                                            {card.temperature_celsius.toFixed(1)}°C
+                                          </span>
+                                        </div>
+                                      )}
+                                      {card?.power_draw_watts != null && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                          <span>功耗:</span>
+                                          <span style={{ fontWeight: 500 }}>{card.power_draw_watts.toFixed(1)}W</span>
+                                        </div>
+                                      )}
+                                      {card?.memory_clock_mhz != null && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                          <span>显存频率:</span>
+                                          <span style={{ fontWeight: 500 }}>{card.memory_clock_mhz.toFixed(0)} MHz</span>
+                                        </div>
+                                      )}
+                                      {card?.graphics_clock_mhz != null && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                          <span>核心频率:</span>
+                                          <span style={{ fontWeight: 500 }}>{card.graphics_clock_mhz.toFixed(0)} MHz</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </List.Item>
+                              )
+                            }}
+                            style={{ maxHeight: 400, overflowY: 'auto' }}
+                          />
+                        </div>
                       ) : (
                         <div style={{ padding: 8, color: '#64748b' }}>当前后端未提供逐卡数据</div>
                       )

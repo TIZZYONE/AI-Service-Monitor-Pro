@@ -1,5 +1,5 @@
 import React from 'react'
-import { Card, Tag, Button, Space, Popconfirm, Typography, Tooltip } from 'antd'
+import { Card, Tag, Button, Space, Popconfirm, Typography, Tooltip, Checkbox } from 'antd'
 import { 
   PlayCircleOutlined, 
   PauseCircleOutlined, 
@@ -24,6 +24,9 @@ interface TaskCardProps {
     stop?: boolean
     delete?: boolean
   }
+  selected?: boolean
+  onSelectChange?: (id: number, selected: boolean) => void
+  showCheckbox?: boolean
 }
 
 const TaskCard: React.FC<TaskCardProps> = ({
@@ -33,6 +36,9 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onEdit,
   onDelete,
   loading = {},
+  selected = false,
+  onSelectChange,
+  showCheckbox = false,
 }) => {
   const getStatusTag = (status: string) => {
     const statusConfig = {
@@ -64,6 +70,13 @@ const TaskCard: React.FC<TaskCardProps> = ({
       className="task-card"
       title={
         <Space>
+          {showCheckbox && (
+            <Checkbox
+              checked={selected}
+              onChange={(e) => onSelectChange?.(task.id, e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <Text strong>{task.name}</Text>
           {getStatusTag(task.status)}
         </Space>

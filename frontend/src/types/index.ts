@@ -8,6 +8,10 @@ export interface Server {
   last_heartbeat?: string
   system?: {
     cpu_usage: string
+    cpu_count_physical?: number
+    cpu_count_logical?: number
+    cpu_freq_current_mhz?: number
+    cpu_freq_max_mhz?: number
     memory_usage: string
     disk_usage: string
     memory_total: string
@@ -15,6 +19,7 @@ export interface Server {
     gpu_memory_usage?: string
     gpu_memory_total?: string
     gpu_percent_avg?: number
+    gpu_driver_version?: string
     gpus?: {
       index: number
       name?: string
@@ -22,6 +27,11 @@ export interface Server {
       memory_total_mb?: number
       percent?: number
       utilization_percent?: number
+      temperature_celsius?: number
+      power_draw_watts?: number
+      driver_version?: string
+      memory_clock_mhz?: number
+      graphics_clock_mhz?: number
     }[]
   }
   service?: string

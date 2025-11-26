@@ -43,6 +43,7 @@ app.add_middleware(
         "http://127.0.0.1:3456",
         "http://0.0.0.0:3456",
         "http://172.17.103.72:3456",
+        "http://10.2.3.61:3456",
         "http://localhost:8633",
         "http://127.0.0.1:8633",
         "http://0.0.0.0:8633"
@@ -73,10 +74,10 @@ async def health_check():
     def get_gpu_memory_info():
         """获取GPU显存信息（支持多卡），返回汇总与逐卡数据"""
         try:
-            # 查询多卡显存与利用率信息
+            # 查询多卡详细信息：索引、名称、显存、利用率、温度、功耗、驱动版本、显存频率、核心频率
             result = subprocess.run([
                 'nvidia-smi',
-                '--query-gpu=index,name,memory.used,memory.total,utilization.gpu',
+                '--query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw,driver_version,clocks.mem,clocks.gr',
                 '--format=csv,noheader,nounits'
             ], capture_output=True, text=True, timeout=10)
 
@@ -90,12 +91,16 @@ async def health_check():
             cards = []
             total_mb = 0
             used_mb = 0
+            driver_version = None
+            
             for ln in lines:
                 parts = [p.strip() for p in ln.split(',')]
-                # 期望: index, name, used(MB), total(MB), utilization(%)
+                # 期望: index, name, used(MB), total(MB), utilization(%), temperature(°C), power(W), driver_version, mem_clock(MHz), gr_clock(MHz)
                 if len(parts) < 5:
                     # 兼容部分环境输出带空格分隔
                     parts = [p.strip() for p in ln.split(', ')]
+                
+                # 至少需要5个字段（index, name, used, total, utilization）
                 if len(parts) >= 5:
                     try:
                         idx = int(parts[0])
@@ -103,27 +108,77 @@ async def health_check():
                         used = int(parts[2])
                         total = int(parts[3])
                         util = float(parts[4])
-                    except ValueError:
+                        
+                        # 可选字段
+                        temperature = None
+                        power_draw = None
+                        driver_ver = None
+                        mem_clock = None
+                        gr_clock = None
+                        
+                        if len(parts) >= 6 and parts[5]:
+                            try:
+                                temperature = float(parts[5])
+                            except:
+                                pass
+                        
+                        if len(parts) >= 7 and parts[6]:
+                            try:
+                                power_draw = float(parts[6])
+                            except:
+                                pass
+                        
+                        if len(parts) >= 8 and parts[7]:
+                            driver_ver = parts[7]
+                            if not driver_version:  # 保存第一个驱动版本（通常所有卡相同）
+                                driver_version = driver_ver
+                        
+                        if len(parts) >= 9 and parts[8]:
+                            try:
+                                mem_clock = float(parts[8])
+                            except:
+                                pass
+                        
+                        if len(parts) >= 10 and parts[9]:
+                            try:
+                                gr_clock = float(parts[9])
+                            except:
+                                pass
+
+                        percent = (used / total) * 100 if total > 0 else 0.0
+                        card_info = {
+                            "index": idx,
+                            "name": name,
+                            "memory_used_mb": used,
+                            "memory_total_mb": total,
+                            "percent": round(percent, 1),
+                            "utilization_percent": round(util, 1),
+                        }
+                        
+                        # 添加可选字段
+                        if temperature is not None:
+                            card_info["temperature_celsius"] = round(temperature, 1)
+                        if power_draw is not None:
+                            card_info["power_draw_watts"] = round(power_draw, 1)
+                        if driver_ver:
+                            card_info["driver_version"] = driver_ver
+                        if mem_clock is not None:
+                            card_info["memory_clock_mhz"] = round(mem_clock, 1)
+                        if gr_clock is not None:
+                            card_info["graphics_clock_mhz"] = round(gr_clock, 1)
+                        
+                        cards.append(card_info)
+                        total_mb += total
+                        used_mb += used
+                    except ValueError as e:
                         # 输出格式异常时跳过该行
                         continue
-
-                    percent = (used / total) * 100 if total > 0 else 0.0
-                    cards.append({
-                        "index": idx,
-                        "name": name,
-                        "memory_used_mb": used,
-                        "memory_total_mb": total,
-                        "percent": round(percent, 1),
-                        "utilization_percent": round(util, 1),
-                    })
-                    total_mb += total
-                    used_mb += used
 
             if not cards:
                 return {}
 
             usage_percent = (used_mb / total_mb) * 100 if total_mb > 0 else 0.0
-            return {
+            result = {
                 # 汇总（保持原有字段以兼容前端）
                 "gpu_memory_usage": f"{usage_percent:.1f}%",
                 "gpu_memory_total": f"{total_mb // 1024}GB",
@@ -132,6 +187,12 @@ async def health_check():
                 # 平均利用率（简单平均）
                 "gpu_percent_avg": round(sum(c.get("percent", 0) for c in cards) / len(cards), 1)
             }
+            
+            # 添加驱动版本信息（如果可用）
+            if driver_version:
+                result["gpu_driver_version"] = driver_version
+            
+            return result
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
             # nvidia-smi不存在或执行失败，返回空字典
             return {}
@@ -141,6 +202,13 @@ async def health_check():
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
+        
+        # 获取CPU详细信息
+        cpu_count_physical = psutil.cpu_count(logical=False)  # 物理核心数
+        cpu_count_logical = psutil.cpu_count(logical=True)    # 逻辑核心数
+        cpu_freq = psutil.cpu_freq()
+        cpu_freq_current = cpu_freq.current if cpu_freq else None
+        cpu_freq_max = cpu_freq.max if cpu_freq else None
 
         # 获取GPU显存信息
         gpu_info = get_gpu_memory_info()
@@ -148,6 +216,10 @@ async def health_check():
         # 构建系统信息
         system_info = {
             "cpu_usage": f"{cpu_percent}%",
+            "cpu_count_physical": cpu_count_physical,
+            "cpu_count_logical": cpu_count_logical,
+            "cpu_freq_current_mhz": round(cpu_freq_current, 2) if cpu_freq_current else None,
+            "cpu_freq_max_mhz": round(cpu_freq_max, 2) if cpu_freq_max else None,
             "memory_usage": f"{memory.percent}%",
             "disk_usage": f"{disk.percent}%",
             "memory_total": f"{memory.total // (1024 ** 3)}GB",

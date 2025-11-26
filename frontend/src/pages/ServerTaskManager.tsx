@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Button, Typography, Space, message, Spin, Modal } from 'antd'
+     import { ThunderboltOutlined } from '@ant-design/icons'
 import TaskCard from '../components/TaskCard'
 import TaskForm from '../components/TaskForm'
 import { Task, TaskCreate, TaskUpdate } from '../types'
@@ -16,6 +17,8 @@ const ServerTaskManager: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [isModalVisible, setIsModalVisible] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set())
+  const [batchStarting, setBatchStarting] = useState(false)
 
   const [serverConfigState, setServerConfigState] = useState(serverId ? serverConfigManager.getServer(serverId) : null)
 
@@ -41,6 +44,11 @@ const ServerTaskManager: React.FC = () => {
     try {
       const taskList = await multiServerApi.getTasks(serverId)
       setTasks(taskList)
+      // 清理无效的选中状态（任务已被删除的情况）
+      setSelectedTaskIds(prev => {
+        const validIds = new Set(taskList.map(t => t.id))
+        return new Set([...prev].filter(id => validIds.has(id)))
+      })
     } catch (error) {
       message.error('加载任务列表失败')
       console.error('加载任务失败:', error)
@@ -90,6 +98,12 @@ const ServerTaskManager: React.FC = () => {
     try {
       await multiServerApi.deleteTask(serverId, taskId)
       message.success('任务删除成功')
+      // 从选中列表中移除
+      setSelectedTaskIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(taskId)
+        return newSet
+      })
       loadTasks()
     } catch (error) {
       message.error('删除任务失败')
@@ -123,6 +137,72 @@ const ServerTaskManager: React.FC = () => {
     }
   }
 
+  const handleSelectChange = (taskId: number, selected: boolean) => {
+    setSelectedTaskIds(prev => {
+      const newSet = new Set(prev)
+      if (selected) {
+        newSet.add(taskId)
+      } else {
+        newSet.delete(taskId)
+      }
+      return newSet
+    })
+  }
+
+  const handleBatchStart = async () => {
+    if (!serverId) return
+
+    if (selectedTaskIds.size === 0) {
+      message.warning('请先选择要启动的任务')
+      return
+    }
+
+    // 过滤出未运行的任务
+    const tasksToStart = tasks.filter(
+      task => selectedTaskIds.has(task.id) && task.status !== 'running'
+    )
+
+    if (tasksToStart.length === 0) {
+      message.warning('所选任务中没有可启动的任务（所有任务都在运行中）')
+      return
+    }
+
+    setBatchStarting(true)
+    let successCount = 0
+    let failCount = 0
+
+    try {
+      // 并发启动所有任务
+      await Promise.allSettled(
+        tasksToStart.map(async (task) => {
+          try {
+            await multiServerApi.startTask(serverId, task.id)
+            successCount++
+          } catch (error) {
+            failCount++
+            console.error(`启动任务 ${task.id} 失败:`, error)
+          }
+        })
+      )
+
+      if (successCount > 0) {
+        message.success(`成功启动 ${successCount} 个任务${failCount > 0 ? `，${failCount} 个失败` : ''}`)
+      } else {
+        message.error('所有任务启动失败')
+      }
+
+      // 清空选择
+      setSelectedTaskIds(new Set())
+      // 刷新任务列表
+      await loadTasks()
+    } catch (error) {
+      message.error('批量启动任务失败')
+      console.error('批量启动任务失败:', error)
+    } finally {
+      setBatchStarting(false)
+    }
+  }
+
   if (!serverConfigState) {
     return <div>服务器不存在</div>
   }
@@ -137,6 +217,16 @@ const ServerTaskManager: React.FC = () => {
           </Title>
         </div>
         <Space>
+          {selectedTaskIds.size > 0 && (
+            <Button 
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={handleBatchStart}
+              loading={batchStarting}
+            >
+              一键启动 ({selectedTaskIds.size})
+            </Button>
+          )}
           <Button 
             type="primary"
             onClick={handleCreateTask}
@@ -162,6 +252,9 @@ const ServerTaskManager: React.FC = () => {
               onDelete={handleDeleteTask}
               onStart={handleStartTask}
               onStop={handleStopTask}
+              selected={selectedTaskIds.has(task.id)}
+              onSelectChange={handleSelectChange}
+              showCheckbox={true}
             />
           ))}
         </div>

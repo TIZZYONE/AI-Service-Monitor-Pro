@@ -5,6 +5,7 @@ import asyncio
 import subprocess
 import psutil
 import os
+import sys
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional
@@ -28,6 +29,7 @@ class TaskScheduler:
         self.scheduler = AsyncIOScheduler()
         self.running_processes: Dict[int, subprocess.Popen] = {}
         self.task_log_entries: Dict[int, int] = {}  # task_id -> log_entry_id
+        self.task_log_files: Dict[int, str] = {}  # task_id -> current_log_file_path
     
     async def start(self):
         """启动调度器"""
@@ -127,8 +129,14 @@ class TaskScheduler:
             )
         elif task.repeat_type == RepeatType.QUARTERLY:
             # 每季度重复（每3个月）
+            # 根据起始月份计算每季度的月份列表
+            start_month = task.start_time.month
+            # 计算起始月份所属的季度起始月份（1, 4, 7, 10）
+            quarter_start_month = ((start_month - 1) // 3) * 3 + 1
+            # 生成每季度的月份列表：从起始季度开始，每3个月一次
+            quarter_months = [quarter_start_month + i*3 for i in range(4) if quarter_start_month + i*3 <= 12]
             trigger = CronTrigger(
-                month=f"{task.start_time.month}/3",
+                month=f"{','.join(map(str, quarter_months))}",
                 day=task.start_time.day,
                 hour=task.start_time.hour,
                 minute=task.start_time.minute,
@@ -150,10 +158,81 @@ class TaskScheduler:
         # 如果有结束时间，添加停止任务
         if task.end_time:
             stop_job_id = f"stop_task_{task.id}"
-            # 仅在结束时间在未来时创建停止作业
-            if task.end_time > datetime.utcnow():
-                stop_trigger = DateTrigger(run_date=task.end_time)
-                
+            # 移除已存在的停止任务
+            if self.scheduler.get_job(stop_job_id):
+                self.scheduler.remove_job(stop_job_id)
+            
+            # 根据重复类型设置停止触发器
+            if task.repeat_type == RepeatType.NONE:
+                # 一次性任务：在结束时间点停止
+                if task.end_time > datetime.utcnow():
+                    stop_trigger = DateTrigger(run_date=task.end_time)
+                    self.scheduler.add_job(
+                        self.stop_task,
+                        stop_trigger,
+                        args=[task.id],
+                        id=stop_job_id,
+                        replace_existing=True
+                    )
+            elif task.repeat_type == RepeatType.DAILY:
+                # 每日重复：每天在结束时间停止
+                stop_trigger = CronTrigger(
+                    hour=task.end_time.hour,
+                    minute=task.end_time.minute,
+                    second=task.end_time.second
+                )
+                self.scheduler.add_job(
+                    self.stop_task,
+                    stop_trigger,
+                    args=[task.id],
+                    id=stop_job_id,
+                    replace_existing=True
+                )
+            elif task.repeat_type == RepeatType.WEEKLY:
+                # 每周重复：每周在结束时间的星期几停止
+                stop_trigger = CronTrigger(
+                    day_of_week=task.end_time.weekday(),
+                    hour=task.end_time.hour,
+                    minute=task.end_time.minute,
+                    second=task.end_time.second
+                )
+                self.scheduler.add_job(
+                    self.stop_task,
+                    stop_trigger,
+                    args=[task.id],
+                    id=stop_job_id,
+                    replace_existing=True
+                )
+            elif task.repeat_type == RepeatType.MONTHLY:
+                # 每月重复：每月在结束时间的日期停止
+                stop_trigger = CronTrigger(
+                    day=task.end_time.day,
+                    hour=task.end_time.hour,
+                    minute=task.end_time.minute,
+                    second=task.end_time.second
+                )
+                self.scheduler.add_job(
+                    self.stop_task,
+                    stop_trigger,
+                    args=[task.id],
+                    id=stop_job_id,
+                    replace_existing=True
+                )
+            elif task.repeat_type == RepeatType.QUARTERLY:
+                # 每季度重复：每季度在结束时间停止
+                # 根据结束月份计算每季度的月份列表
+                end_month = task.end_time.month
+                # 计算结束月份所属的季度起始月份（1, 4, 7, 10）
+                quarter_start_month = ((end_month - 1) // 3) * 3 + 1
+                # 生成每季度的月份列表：从起始季度开始，每3个月一次
+                quarter_months = [quarter_start_month + i*3 for i in range(4) if quarter_start_month + i*3 <= 12]
+                stop_trigger = CronTrigger(
+                    month=f"{','.join(map(str, quarter_months))}",
+                    day=task.end_time.day,
+                    hour=task.end_time.hour,
+                    minute=task.end_time.minute,
+                    second=task.end_time.second
+                )
                 self.scheduler.add_job(
                     self.stop_task,
                     stop_trigger,
@@ -181,6 +260,27 @@ class TaskScheduler:
                 logger.info(f"任务 {task_id} 已在运行中")
                 return
             
+            # 检查是否已超过结束日期（对于重复任务，如果结束日期已过，不再执行）
+            if task.end_time and task.repeat_type != RepeatType.NONE:
+                now = datetime.utcnow()
+                start_date = task.start_time.date()
+                end_date = task.end_time.date()
+                
+                # 如果开始时间和结束时间的日期不同，说明有结束日期限制
+                if start_date != end_date:
+                    current_date = now.date()
+                    if current_date > end_date:
+                        logger.info(f"任务 {task_id} 已超过结束日期 {end_date}，不再执行")
+                        # 移除调度器中的任务
+                        job_id = f"task_{task_id}"
+                        if self.scheduler.get_job(job_id):
+                            self.scheduler.remove_job(job_id)
+                        # 移除停止任务
+                        stop_job_id = f"stop_task_{task_id}"
+                        if self.scheduler.get_job(stop_job_id):
+                            self.scheduler.remove_job(stop_job_id)
+                        return
+            
             try:
                 logger.info(f"开始启动任务 {task_id}: {task.name}")
                 
@@ -194,6 +294,7 @@ class TaskScheduler:
                 
                 log_entry = await log_service.create_log_entry(task_id, log_file_path)
                 self.task_log_entries[task_id] = log_entry.id
+                self.task_log_files[task_id] = log_file_path
                 logger.info(f"任务 {task_id} 日志条目已创建，ID: {log_entry.id}")
                 
                 # 构建完整的命令，添加conda初始化
@@ -201,11 +302,33 @@ class TaskScheduler:
                 if 'conda activate' in task.activate_env_command:
                     # 为conda环境添加初始化命令
                     conda_init_command = self._get_conda_init_command()
-                    full_command = f"{conda_init_command} && {task.activate_env_command} && {task.main_program_command}"
+                    original_command = f"{conda_init_command} && {task.activate_env_command} && {task.main_program_command}"
                 else:
-                    full_command = f"{task.activate_env_command} && {task.main_program_command}"
+                    original_command = f"{task.activate_env_command} && {task.main_program_command}"
                 
-                logger.info(f"任务 {task_id} 完整命令: {full_command}")
+                # 使用日志包装脚本启动任务
+                # 获取包装脚本路径
+                script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                wrapper_script = os.path.join(script_dir, 'utils', 'log_wrapper.py')
+                
+                # 确保包装脚本存在
+                if not os.path.exists(wrapper_script):
+                    logger.error(f"日志包装脚本不存在: {wrapper_script}")
+                    raise FileNotFoundError(f"日志包装脚本不存在: {wrapper_script}")
+                
+                # 构建使用包装脚本的命令
+                # 转义命令中的特殊字符
+                import shlex
+                escaped_command = shlex.quote(original_command)
+                log_dir = log_service.log_dir
+                safe_task_name = shlex.quote(task.name)
+                
+                # 使用Python解释器运行包装脚本
+                python_executable = sys.executable
+                wrapper_command = f'{python_executable} "{wrapper_script}" {escaped_command} "{log_dir}" {task_id} {safe_task_name}'
+                
+                logger.info(f"任务 {task_id} 完整命令: {original_command}")
+                logger.info(f"任务 {task_id} 使用日志包装脚本启动")
                 
                 # 启动进程
                 logger.info(f"正在启动任务 {task_id} 的进程...")
@@ -213,12 +336,14 @@ class TaskScheduler:
                 # 设置环境变量，确保conda可以正常工作
                 env = os.environ.copy()
                 
+                # 使用包装脚本启动，输出会被包装脚本处理
+                # 包装脚本会将输出写入日志文件并实现轮转
                 process = subprocess.Popen(
-                    full_command,
+                    wrapper_command,
                     shell=True,
-                    stdout=open(log_file_path, 'w', encoding='utf-8'),
-                    stderr=subprocess.STDOUT,
-                    cwd=None,  # 使用默认工作目录，避免路径解析错误
+                    stdout=subprocess.PIPE,  # 包装脚本的输出（包含日志文件路径）
+                    stderr=subprocess.PIPE,   # 包装脚本的错误输出
+                    cwd=None,
                     env=env
                 )
                 
@@ -333,11 +458,66 @@ class TaskScheduler:
                             await log_service.end_log_entry(self.task_log_entries[task_id])
                             del self.task_log_entries[task_id]
                         
+                        # 清理日志文件记录
+                        if task_id in self.task_log_files:
+                            del self.task_log_files[task_id]
+                        
+                        # 关闭文件句柄
+                        if process.stdout and not process.stdout.closed:
+                            try:
+                                process.stdout.close()
+                            except:
+                                pass
+                        
                         del self.running_processes[task_id]
                         
                         task = await service.get_task(task_id)
                         if task:
                             print(f"任务 {task.name} (ID: {task_id}) 已结束，退出码: {exit_code}")
+                    else:
+                        # 进程仍在运行，检查是否有新的日志文件（包装脚本可能已经轮转了）
+                        # 扫描日志目录，查找该任务的新日志文件
+                        log_dir = log_service.log_dir
+                        if os.path.exists(log_dir):
+                            # 查找该任务的所有日志文件
+                            import glob
+                            pattern = os.path.join(log_dir, f"task_{task_id}_*.txt")
+                            log_files = glob.glob(pattern)
+                            
+                            # 按修改时间排序，获取最新的日志文件
+                            if log_files:
+                                log_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                                latest_log_file = log_files[0]
+                                
+                                # 检查这个文件是否已经在数据库中
+                                current_logs = await log_service.get_task_logs(task_id)
+                                existing_paths = {log.log_file_path for log in current_logs}
+                                
+                                # 如果最新文件不在数据库中，创建新的日志记录
+                                # 将绝对路径转换为相对路径（与log_service保持一致）
+                                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                                latest_log_file_rel = os.path.relpath(latest_log_file, base_dir)
+                                if latest_log_file_rel not in existing_paths and latest_log_file not in existing_paths:
+                                    logger.info(f"任务 {task_id} 检测到新日志文件：{latest_log_file}")
+                                    # 使用相对路径创建日志记录
+                                    new_log_entry = await log_service.create_log_entry(task_id, latest_log_file_rel)
+                                    self.task_log_entries[task_id] = new_log_entry.id
+                                    self.task_log_files[task_id] = latest_log_file_rel
+                                
+                                # 检查是否有日志文件轮转
+                                if task_id in self.task_log_files:
+                                    current_log_path = self.task_log_files[task_id]
+                                    # 比较时需要考虑相对路径和绝对路径（latest_log_file_rel已在上面计算）
+                                    if latest_log_file_rel != current_log_path and latest_log_file != current_log_path:
+                                        logger.info(f"任务 {task_id} 检测到日志文件轮转：{current_log_path} -> {latest_log_file_rel}")
+                                        # 更新记录的日志文件路径（使用相对路径）
+                                        self.task_log_files[task_id] = latest_log_file_rel
+                                        # 更新日志条目ID
+                                        current_logs = await log_service.get_task_logs(task_id)
+                                        for log in current_logs:
+                                            if log.log_file_path == latest_log_file_rel or log.log_file_path == latest_log_file:
+                                                self.task_log_entries[task_id] = log.id
+                                                break
                 
                 except Exception as e:
                     print(f"监控任务 {task_id} 时出错: {str(e)}")

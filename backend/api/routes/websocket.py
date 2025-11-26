@@ -1,6 +1,7 @@
 """
 WebSocket路由 - 实时日志查看
 """
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
@@ -11,6 +12,8 @@ from typing import Dict, Set
 from core.database import get_db, AsyncSessionLocal
 from services.task_service import TaskService
 from services.log_service import LogService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -72,6 +75,7 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
             if not task:
                 await websocket.send_text(json.dumps({
                     "type": "error",
+                    "task_id": task_id,
                     "message": "任务不存在"
                 }))
                 return
@@ -98,11 +102,13 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
                             if content:
                                 await websocket.send_text(json.dumps({
                                     "type": "initial_log",
+                                    "task_id": task_id,
                                     "content": content
                                 }))
                     except Exception as e:
                         await websocket.send_text(json.dumps({
                             "type": "error",
+                            "task_id": task_id,
                             "message": f"读取日志文件失败: {str(e)}"
                         }))
                 
@@ -110,8 +116,51 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
                 last_size = os.path.getsize(log_file_path) if os.path.exists(log_file_path) else 0
                 
                 while True:
-                    await asyncio.sleep(3)  # 每秒检查一次
+                    await asyncio.sleep(3)  # 每3秒检查一次
                     
+                    # 检查是否有新的日志文件（日志轮转）
+                    current_logs = await log_service.get_task_logs(task_id)
+                    if current_logs:
+                        current_latest_log = current_logs[0]
+                        current_log_path = current_latest_log.log_file_path
+                        
+                        # 如果日志文件路径改变了，说明发生了轮转
+                        if current_log_path != log_file_path:
+                            logger.info(f"WebSocket检测到任务 {task_id} 日志文件轮转：{log_file_path} -> {current_log_path}")
+                            
+                            # 发送轮转通知
+                            await websocket.send_text(json.dumps({
+                                "type": "log_file_rotated",
+                                "task_id": task_id,
+                                "old_file": log_file_path,
+                                "new_file": current_log_path,
+                                "message": f"日志文件已轮转到：{os.path.basename(current_log_path)}"
+                            }))
+                            
+                            # 切换到新日志文件
+                            log_file_path = current_log_path
+                            last_size = 0  # 重置文件大小，从头开始读取新文件
+                            
+                            # 发送新文件的初始内容
+                            if os.path.exists(log_file_path):
+                                try:
+                                    with open(log_file_path, 'r', encoding='utf-8') as f:
+                                        content = f.read()
+                                        if content:
+                                            await websocket.send_text(json.dumps({
+                                                "type": "initial_log",
+                                                "task_id": task_id,
+                                                "content": content
+                                            }))
+                                    last_size = os.path.getsize(log_file_path)
+                                except Exception as e:
+                                    await websocket.send_text(json.dumps({
+                                        "type": "error",
+                                        "task_id": task_id,
+                                        "message": f"读取新日志文件失败: {str(e)}"
+                                    }))
+                    
+                    # 监控当前日志文件的变化
                     if os.path.exists(log_file_path):
                         current_size = os.path.getsize(log_file_path)
                         if current_size > last_size:
@@ -123,12 +172,14 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
                                     if new_content:
                                         await websocket.send_text(json.dumps({
                                             "type": "log_update",
+                                            "task_id": task_id,
                                             "content": new_content
                                         }))
                                 last_size = current_size
                             except Exception as e:
                                 await websocket.send_text(json.dumps({
                                     "type": "error",
+                                    "task_id": task_id,
                                     "message": f"读取新日志内容失败: {str(e)}"
                                 }))
                     
@@ -168,6 +219,7 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
         try:
             await websocket.send_text(json.dumps({
                 "type": "error",
+                "task_id": task_id,
                 "message": f"WebSocket错误: {str(e)}"
             }))
         except:

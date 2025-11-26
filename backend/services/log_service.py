@@ -1,14 +1,17 @@
 """
 日志服务层
 """
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import os
 import aiofiles
-from datetime import datetime
+from datetime import datetime, date
 
 from models.log import TaskLog
+
+logger = logging.getLogger(__name__)
 
 
 class LogService:
@@ -118,11 +121,168 @@ class LogService:
             log_entry.end_time = datetime.utcnow()
             await self.db.commit()
     
-    def generate_log_file_path(self, task_id: int, task_name: str) -> str:
-        """生成日志文件路径"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    def generate_log_file_path(self, task_id: int, task_name: str, log_date: Optional[date] = None, part: int = 1) -> str:
+        """生成日志文件路径
+        
+        Args:
+            task_id: 任务ID
+            task_name: 任务名称
+            log_date: 日志日期，如果为None则使用当前日期
+            part: 日志文件部分编号（用于拆分大文件）
+        """
+        if log_date is None:
+            log_date = datetime.now().date()
+        
+        date_str = log_date.strftime("%Y%m%d")
+        timestamp = datetime.now().strftime("%H%M%S")
         safe_task_name = "".join(c for c in task_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
         safe_task_name = safe_task_name.replace(' ', '_')
         
-        filename = f"task_{task_id}_{safe_task_name}_{timestamp}.txt"
+        if part > 1:
+            filename = f"task_{task_id}_{safe_task_name}_{date_str}_{timestamp}_part{part}.txt"
+        else:
+            filename = f"task_{task_id}_{safe_task_name}_{date_str}_{timestamp}.txt"
         return os.path.join(self.log_dir, filename)
+    
+    async def check_and_rotate_log(self, task_id: int, current_log_path: str, log_entry_id: int) -> Optional[Tuple[str, str]]:
+        """检查并轮换日志文件
+        
+        检查条件：
+        1. 如果当前日期与日志文件日期不同（跨天），创建新日志文件
+        2. 如果日志文件超过50000行，创建新日志文件
+        
+        Returns:
+            如果需要切换，返回新日志文件路径；否则返回None
+        """
+        if not os.path.exists(current_log_path):
+            return None
+        
+        try:
+            # 检查文件行数
+            line_count = 0
+            async with aiofiles.open(current_log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                async for _ in f:
+                    line_count += 1
+                    if line_count > 50000:
+                        break
+            
+            # 检查是否需要切换
+            need_rotate = False
+            rotate_reason = ""
+            
+            # 检查行数
+            if line_count > 50000:
+                need_rotate = True
+                rotate_reason = f"行数超过50000行（当前{line_count}行）"
+            
+            # 检查日期（从文件名中提取日期）
+            try:
+                filename = os.path.basename(current_log_path)
+                # 文件名格式: task_{task_id}_{task_name}_{date}_{time}[_part{N}].txt
+                parts = filename.replace('.txt', '').split('_')
+                if len(parts) >= 4:
+                    # 查找日期部分（格式：YYYYMMDD）
+                    file_date_str = None
+                    for part in parts:
+                        if len(part) == 8 and part.isdigit():
+                            file_date_str = part
+                            break
+                    
+                    if file_date_str:
+                        file_date = datetime.strptime(file_date_str, "%Y%m%d").date()
+                        current_date = datetime.now().date()
+                        
+                        if file_date < current_date:
+                            need_rotate = True
+                            rotate_reason = f"跨天（文件日期：{file_date}，当前日期：{current_date}）"
+            except Exception as e:
+                # 如果无法解析日期，忽略
+                pass
+            
+            if need_rotate:
+                # 获取任务信息以生成新日志文件名
+                from services.task_service import TaskService
+                task_service = TaskService(self.db)
+                task = await task_service.get_task(task_id)
+                
+                if not task:
+                    return None
+                
+                # 确定新日志文件的日期和部分号
+                current_date = datetime.now().date()
+                
+                # 检查今天是否已有日志文件
+                today_logs = await self.get_task_logs(task_id)
+                today_log_count = 0
+                for log in today_logs:
+                    if log.log_file_path and os.path.exists(log.log_file_path):
+                        try:
+                            log_filename = os.path.basename(log.log_file_path)
+                            log_parts = log_filename.replace('.txt', '').split('_')
+                            for part in log_parts:
+                                if len(part) == 8 and part.isdigit():
+                                    log_date_str = part
+                                    log_date = datetime.strptime(log_date_str, "%Y%m%d").date()
+                                    if log_date == current_date:
+                                        # 检查是否是part文件
+                                        if '_part' in log_filename:
+                                            try:
+                                                part_num = int(log_filename.split('_part')[1].replace('.txt', ''))
+                                                today_log_count = max(today_log_count, part_num)
+                                            except:
+                                                pass
+                                        else:
+                                            today_log_count = max(today_log_count, 1)
+                        except:
+                            pass
+                
+                # 生成新日志文件路径
+                new_part = today_log_count + 1
+                new_log_path = self.generate_log_file_path(task_id, task.name, current_date, new_part)
+                
+                # 结束当前日志记录
+                await self.end_log_entry(log_entry_id)
+                
+                # 创建新的日志记录
+                new_log_entry = await self.create_log_entry(task_id, new_log_path)
+                
+                logger.info(f"任务 {task_id} 日志文件轮换：{rotate_reason}，新日志文件：{new_log_path}")
+                
+                return (new_log_path, rotate_reason)
+        
+        except Exception as e:
+            logger.error(f"检查日志文件轮换失败：{str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+        
+        return None
+    
+    def get_log_file_info(self, log_file_path: str) -> Tuple[Optional[date], int]:
+        """获取日志文件信息
+        
+        Returns:
+            (文件日期, 部分号)
+        """
+        try:
+            filename = os.path.basename(log_file_path)
+            parts = filename.replace('.txt', '').split('_')
+            
+            file_date = None
+            part_num = 1
+            
+            # 查找日期部分
+            for part in parts:
+                if len(part) == 8 and part.isdigit():
+                    file_date = datetime.strptime(part, "%Y%m%d").date()
+                    break
+            
+            # 查找部分号
+            if '_part' in filename:
+                try:
+                    part_num = int(filename.split('_part')[1].replace('.txt', ''))
+                except:
+                    pass
+            
+            return file_date, part_num
+        except:
+            return None, 1
