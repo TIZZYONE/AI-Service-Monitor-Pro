@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Button, Typography, Space, message, Spin, Modal } from 'antd'
-import { ThunderboltOutlined, ReloadOutlined, PlusOutlined, CheckSquareOutlined } from '@ant-design/icons'
+import { ThunderboltOutlined, ReloadOutlined, PlusOutlined, CheckSquareOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import TaskCard from '../components/TaskCard'
 import TaskForm from '../components/TaskForm'
 import { Task, TaskCreate, TaskUpdate } from '../types'
@@ -164,7 +164,7 @@ const ServerTaskManager: React.FC = () => {
     }
   }
 
-  const handleStartAll = async () => {
+  const handleStartAll = () => {
     if (!serverId) return
 
     // 如果没有选择任务，启动所有未运行的任务
@@ -179,40 +179,63 @@ const ServerTaskManager: React.FC = () => {
       return
     }
 
-    setBatchStarting(true)
-    let successCount = 0
-    let failCount = 0
+    // 显示确认弹窗
+    Modal.confirm({
+      title: '确认启动任务',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定要启动以下 {tasksToStart.length} 个任务吗？</p>
+          <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 200, overflowY: 'auto' }}>
+            {tasksToStart.map(task => (
+              <li key={task.id} style={{ marginBottom: 4 }}>
+                <span style={{ fontWeight: 500 }}>{task.name}</span>
+                <span style={{ color: '#999', marginLeft: 8 }}>(ID: {task.id})</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ),
+      okText: '确认启动',
+      cancelText: '取消',
+      okType: 'primary',
+      onOk: async () => {
+        setBatchStarting(true)
+        let successCount = 0
+        let failCount = 0
 
-    try {
-      // 并发启动所有任务
-      await Promise.allSettled(
-        tasksToStart.map(async (task) => {
-          try {
-            await multiServerApi.startTask(serverId, task.id)
-            successCount++
-          } catch (error) {
-            failCount++
-            console.error(`启动任务 ${task.id} 失败:`, error)
+        try {
+          // 并发启动所有任务
+          await Promise.allSettled(
+            tasksToStart.map(async (task) => {
+              try {
+                await multiServerApi.startTask(serverId, task.id)
+                successCount++
+              } catch (error) {
+                failCount++
+                console.error(`启动任务 ${task.id} 失败:`, error)
+              }
+            })
+          )
+
+          if (successCount > 0) {
+            message.success(`成功启动 ${successCount} 个任务${failCount > 0 ? `，${failCount} 个失败` : ''}`)
+          } else {
+            message.error('所有任务启动失败')
           }
-        })
-      )
 
-      if (successCount > 0) {
-        message.success(`成功启动 ${successCount} 个任务${failCount > 0 ? `，${failCount} 个失败` : ''}`)
-      } else {
-        message.error('所有任务启动失败')
+          // 清空选择
+          setSelectedTaskIds(new Set())
+          // 刷新任务列表
+          await loadTasks()
+        } catch (error) {
+          message.error('批量启动任务失败')
+          console.error('批量启动任务失败:', error)
+        } finally {
+          setBatchStarting(false)
+        }
       }
-
-      // 清空选择
-      setSelectedTaskIds(new Set())
-      // 刷新任务列表
-      await loadTasks()
-    } catch (error) {
-      message.error('批量启动任务失败')
-      console.error('批量启动任务失败:', error)
-    } finally {
-      setBatchStarting(false)
-    }
+    })
   }
 
   return (
