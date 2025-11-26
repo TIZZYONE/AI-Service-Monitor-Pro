@@ -59,6 +59,20 @@ const LogViewerPage: React.FC = () => {
 
   const selectedTask = tasks?.find(task => task.id === selectedTaskId)
 
+  // 自动选择第一个运行中的任务（如果没有选中任务且任务列表已加载）
+  useEffect(() => {
+    if (!selectedTaskId && tasks && tasks.length > 0) {
+      // 优先选择运行中的任务
+      const runningTask = tasks.find(task => task.status === 'running')
+      if (runningTask) {
+        setSelectedTaskId(runningTask.id)
+      } else if (tasks.length > 0) {
+        // 如果没有运行中的任务，选择第一个任务
+        setSelectedTaskId(tasks[0].id)
+      }
+    }
+  }, [tasks, selectedTaskId])
+
   const handleTaskSelect = (taskId: number) => {
     setSelectedTaskId(taskId)
   }

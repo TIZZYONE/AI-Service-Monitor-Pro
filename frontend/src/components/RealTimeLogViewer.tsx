@@ -60,13 +60,19 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
     currentTaskIdRef.current = selectedTaskId
   }, [selectedTaskId])
 
-  const { isConnected, reconnectCount } = useWebSocket(wsUrl, {
+  const { isConnected, reconnectCount, disconnect } = useWebSocket(wsUrl, {
     onMessage: (data) => {
       try {
-        // 验证消息是否属于当前选中的任务
+        // 严格验证消息是否属于当前选中的任务
         // 如果任务ID不匹配，忽略此消息（可能是旧连接的消息）
         if (data.task_id !== undefined && data.task_id !== currentTaskIdRef.current) {
           console.debug(`忽略不属于当前任务的消息: task_id=${data.task_id}, current=${currentTaskIdRef.current}`)
+          return
+        }
+
+        // 双重检查：确保当前选中的任务ID仍然匹配（防止快速切换时的竞态条件）
+        if (selectedTaskId !== undefined && data.task_id !== undefined && data.task_id !== selectedTaskId) {
+          console.debug(`任务已切换，忽略旧任务消息: task_id=${data.task_id}, selected=${selectedTaskId}`)
           return
         }
 
@@ -106,6 +112,16 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
       console.error('WebSocket error for task:', selectedTaskId, error)
     }
   })
+
+  // 当任务切换时，立即断开旧的WebSocket连接
+  useEffect(() => {
+    return () => {
+      // 组件卸载或任务切换时断开连接
+      if (disconnect) {
+        disconnect()
+      }
+    }
+  }, [selectedTaskId, disconnect])
 
   // 加载日志文件内容
   const loadLogContent = async (logPath: string) => {
