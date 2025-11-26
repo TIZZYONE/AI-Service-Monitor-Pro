@@ -21,6 +21,7 @@ const ServerTaskManager: React.FC = () => {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set())
   const [batchStarting, setBatchStarting] = useState(false)
   const [server, setServer] = useState<Server | null>(null)
+  const [serverInfoLoading, setServerInfoLoading] = useState(true)
 
   const [serverConfigState, setServerConfigState] = useState(serverId ? serverConfigManager.getServer(serverId) : null)
 
@@ -29,13 +30,19 @@ const ServerTaskManager: React.FC = () => {
     const loadServerInfo = async () => {
       if (!serverId) return
       try {
+        setServerInfoLoading(true)
         const serverInfo = await multiServerApi.getServerInfo(serverId)
         setServer(serverInfo)
       } catch (error) {
         console.error('Failed to load server info:', error)
+        // 即使加载失败，也设置server为null，避免一直显示loading
+        setServer(null)
+      } finally {
+        setServerInfoLoading(false)
       }
     }
 
+    // 立即加载一次
     loadServerInfo()
     // 每10秒刷新一次系统信息
     const interval = setInterval(() => {
@@ -267,158 +274,212 @@ const ServerTaskManager: React.FC = () => {
     <div style={{ padding: '16px 24px' }}>
       {/* 页面头部 */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+          gap: 16,
+          marginBottom: 16 
+        }}>
           <Title level={3} style={{ margin: 0, color: '#0f172a', fontWeight: 600 }}>
             {serverConfigState.name} · 任务管理
           </Title>
           {/* 服务器信息 */}
-          {server && server.status === 'online' && server.system && (
-            <Space wrap>
-              <Tooltip
-                title={
-                  <div>
-                    <div>CPU使用率: {server.system?.cpu_usage || 'N/A'}</div>
-                    {server.system?.cpu_count_physical && (
-                      <div>物理核心: {server.system.cpu_count_physical}核</div>
-                    )}
-                    {server.system?.cpu_count_logical && (
-                      <div>逻辑核心: {server.system.cpu_count_logical}核</div>
-                    )}
-                    {server.system?.cpu_freq_current_mhz != null && (
-                      <div>当前频率: {server.system.cpu_freq_current_mhz.toFixed(2)} MHz</div>
-                    )}
-                    {server.system?.cpu_freq_max_mhz != null && (
-                      <div>最大频率: {server.system.cpu_freq_max_mhz.toFixed(2)} MHz</div>
-                    )}
-                  </div>
-                }
-              >
-                <Tag style={{ background: '#ecfdf5', borderColor: '#d1fae5', color: '#065f46', borderRadius: 16, padding: '2px 10px', fontSize: 12, cursor: 'help' }}>
-                  <DashboardOutlined style={{ marginRight: 6 }} />
-                  CPU {server.system?.cpu_usage || 'N/A'}
-                  {server.system?.cpu_count_logical && ` (${server.system.cpu_count_logical}核)`}
-                </Tag>
-              </Tooltip>
-              <Tag style={{ background: '#eff6ff', borderColor: '#dbeafe', color: '#1e3a8a', borderRadius: 16, padding: '2px 10px', fontSize: 12 }}>
-                <DashboardOutlined style={{ marginRight: 6 }} />
-                内存 {server.system.memory_usage}
-                {server.system.memory_total ? ` / ${server.system.memory_total}` : ''}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {serverInfoLoading ? (
+              <Tag style={{ background: '#f8fafc', borderColor: '#e2e8f0', color: '#64748b', borderRadius: 16, padding: '4px 12px', fontSize: 12 }}>
+                加载中...
               </Tag>
-              <Tag style={{ background: '#f5f3ff', borderColor: '#ede9fe', color: '#5b21b6', borderRadius: 16, padding: '2px 10px', fontSize: 12 }}>
-                <HddOutlined style={{ marginRight: 6 }} />
-                磁盘 {server.system.disk_usage}
-                {server.system.disk_total ? ` / ${server.system.disk_total}` : ''}
-              </Tag>
-              {server.system.gpu_memory_usage && (
-                (() => {
-                  const structured = server.system.gpus && server.system.gpus.length > 0
-                  const g = structured 
-                    ? {
-                        totalGB: (server.system.gpus!.reduce((acc, c) => acc + (c.memory_total_mb || 0), 0)) / 1024,
-                        averagePercent: server.system.gpu_percent_avg ?? undefined,
-                        cards: server.system.gpus!.map((c) => ({
-                          index: c.index,
-                          usedGB: c.memory_used_mb !== undefined ? c.memory_used_mb / 1024 : undefined,
-                          totalGB: c.memory_total_mb !== undefined ? c.memory_total_mb / 1024 : undefined,
-                          percent: c.percent
-                        }))
-                      }
-                    : parseGpuUsage(server.system.gpu_memory_usage, server.system.gpu_memory_total)
-                  const average = g.averagePercent !== undefined ? `${g.averagePercent.toFixed(1)}%` : server.system.gpu_memory_usage
-                  const total = g.totalGB !== undefined ? `${g.totalGB.toFixed(2)}GB` : (server.system.gpu_memory_total || '')
-                  const content = g.cards.length > 0 ? (
-                    <div style={{ minWidth: 320, maxWidth: 500 }}>
-                      {server.system?.gpu_driver_version && (
-                        <div style={{ padding: '8px 12px', borderBottom: '1px solid #e5e7eb', marginBottom: 8 }}>
-                          <div style={{ fontSize: 12, color: '#64748b' }}>驱动版本: <span style={{ fontWeight: 500, color: '#0f172a' }}>{server.system.gpu_driver_version}</span></div>
-                        </div>
+            ) : server && server.status === 'online' && server.system ? (
+              <>
+                <Tooltip
+                  title={
+                    <div>
+                      <div>CPU使用率: {server.system?.cpu_usage || 'N/A'}</div>
+                      {server.system?.cpu_count_physical && (
+                        <div>物理核心: {server.system.cpu_count_physical}核</div>
                       )}
-                      <List
-                        size="small"
-                        dataSource={g.cards}
-                        renderItem={(item: any) => {
-                          const card = server.system?.gpus?.find((gpu: any) => gpu.index === item.index)
-                          return (
-                            <List.Item style={{ padding: '12px', borderBottom: '1px solid #f3f4f6' }}>
-                              <div style={{ width: '100%' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 14 }}>GPU {item.index}</span>
-                                  {card?.name && (
-                                    <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{card.name}</span>
-                                  )}
-                                </div>
-                                <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.8 }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>显存:</span>
-                                    <span style={{ fontWeight: 500 }}>
-                                      {item.usedGB !== undefined && item.totalGB !== undefined
-                                        ? `${item.usedGB.toFixed(2)}GB / ${item.totalGB.toFixed(2)}GB`
-                                        : 'N/A'}
-                                      {item.percent !== undefined ? ` (${item.percent.toFixed(1)}%)` : ''}
-                                    </span>
+                      {server.system?.cpu_count_logical && (
+                        <div>逻辑核心: {server.system.cpu_count_logical}核</div>
+                      )}
+                      {server.system?.cpu_freq_current_mhz != null && (
+                        <div>当前频率: {server.system.cpu_freq_current_mhz.toFixed(2)} MHz</div>
+                      )}
+                      {server.system?.cpu_freq_max_mhz != null && (
+                        <div>最大频率: {server.system.cpu_freq_max_mhz.toFixed(2)} MHz</div>
+                      )}
+                    </div>
+                  }
+                >
+                  <Tag style={{ 
+                    background: '#ecfdf5', 
+                    borderColor: '#d1fae5', 
+                    color: '#065f46', 
+                    borderRadius: 16, 
+                    padding: '4px 12px', 
+                    fontSize: 12, 
+                    cursor: 'help',
+                    margin: 0
+                  }}>
+                    <DashboardOutlined style={{ marginRight: 6 }} />
+                    CPU {server.system?.cpu_usage || 'N/A'}
+                    {server.system?.cpu_count_logical && ` (${server.system.cpu_count_logical}核)`}
+                  </Tag>
+                </Tooltip>
+                <Tag style={{ 
+                  background: '#eff6ff', 
+                  borderColor: '#dbeafe', 
+                  color: '#1e3a8a', 
+                  borderRadius: 16, 
+                  padding: '4px 12px', 
+                  fontSize: 12,
+                  margin: 0
+                }}>
+                  <DashboardOutlined style={{ marginRight: 6 }} />
+                  内存 {server.system.memory_usage}
+                  {server.system.memory_total ? ` / ${server.system.memory_total}` : ''}
+                </Tag>
+                <Tag style={{ 
+                  background: '#f5f3ff', 
+                  borderColor: '#ede9fe', 
+                  color: '#5b21b6', 
+                  borderRadius: 16, 
+                  padding: '4px 12px', 
+                  fontSize: 12,
+                  margin: 0
+                }}>
+                  <HddOutlined style={{ marginRight: 6 }} />
+                  磁盘 {server.system.disk_usage}
+                  {server.system.disk_total ? ` / ${server.system.disk_total}` : ''}
+                </Tag>
+                {server.system.gpu_memory_usage && (
+                  (() => {
+                    const structured = server.system.gpus && server.system.gpus.length > 0
+                    const g = structured 
+                      ? {
+                          totalGB: (server.system.gpus!.reduce((acc, c) => acc + (c.memory_total_mb || 0), 0)) / 1024,
+                          averagePercent: server.system.gpu_percent_avg ?? undefined,
+                          cards: server.system.gpus!.map((c) => ({
+                            index: c.index,
+                            usedGB: c.memory_used_mb !== undefined ? c.memory_used_mb / 1024 : undefined,
+                            totalGB: c.memory_total_mb !== undefined ? c.memory_total_mb / 1024 : undefined,
+                            percent: c.percent
+                          }))
+                        }
+                      : parseGpuUsage(server.system.gpu_memory_usage, server.system.gpu_memory_total)
+                    const average = g.averagePercent !== undefined ? `${g.averagePercent.toFixed(1)}%` : server.system.gpu_memory_usage
+                    const total = g.totalGB !== undefined ? `${g.totalGB.toFixed(2)}GB` : (server.system.gpu_memory_total || '')
+                    const content = g.cards.length > 0 ? (
+                      <div style={{ minWidth: 320, maxWidth: 500 }}>
+                        {server.system?.gpu_driver_version && (
+                          <div style={{ padding: '8px 12px', borderBottom: '1px solid #e5e7eb', marginBottom: 8 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>驱动版本: <span style={{ fontWeight: 500, color: '#0f172a' }}>{server.system.gpu_driver_version}</span></div>
+                          </div>
+                        )}
+                        <List
+                          size="small"
+                          dataSource={g.cards}
+                          renderItem={(item: any) => {
+                            const card = server.system?.gpus?.find((gpu: any) => gpu.index === item.index)
+                            return (
+                              <List.Item style={{ padding: '12px', borderBottom: '1px solid #f3f4f6' }}>
+                                <div style={{ width: '100%' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                    <span style={{ fontWeight: 600, fontSize: 14 }}>GPU {item.index}</span>
+                                    {card?.name && (
+                                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{card.name}</span>
+                                    )}
                                   </div>
-                                  {card?.utilization_percent != null && (
+                                  <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.8 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                      <span>GPU利用率:</span>
-                                      <span style={{ fontWeight: 500 }}>{card.utilization_percent.toFixed(1)}%</span>
-                                    </div>
-                                  )}
-                                  {card?.temperature_celsius != null && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                      <span>温度:</span>
-                                      <span style={{ fontWeight: 500, color: card.temperature_celsius > 80 ? '#dc2626' : card.temperature_celsius > 70 ? '#f59e0b' : '#059669' }}>
-                                        {card.temperature_celsius.toFixed(1)}°C
+                                      <span>显存:</span>
+                                      <span style={{ fontWeight: 500 }}>
+                                        {item.usedGB !== undefined && item.totalGB !== undefined
+                                          ? `${item.usedGB.toFixed(2)}GB / ${item.totalGB.toFixed(2)}GB`
+                                          : 'N/A'}
+                                        {item.percent !== undefined ? ` (${item.percent.toFixed(1)}%)` : ''}
                                       </span>
                                     </div>
-                                  )}
-                                  {card?.power_draw_watts != null && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                      <span>功耗:</span>
-                                      <span style={{ fontWeight: 500 }}>{card.power_draw_watts.toFixed(1)}W</span>
-                                    </div>
-                                  )}
-                                  {card?.memory_clock_mhz != null && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                      <span>显存频率:</span>
-                                      <span style={{ fontWeight: 500 }}>{card.memory_clock_mhz.toFixed(0)} MHz</span>
-                                    </div>
-                                  )}
-                                  {card?.graphics_clock_mhz != null && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                      <span>核心频率:</span>
-                                      <span style={{ fontWeight: 500 }}>{card.graphics_clock_mhz.toFixed(0)} MHz</span>
-                                    </div>
-                                  )}
+                                    {card?.utilization_percent != null && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>GPU利用率:</span>
+                                        <span style={{ fontWeight: 500 }}>{card.utilization_percent.toFixed(1)}%</span>
+                                      </div>
+                                    )}
+                                    {card?.temperature_celsius != null && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>温度:</span>
+                                        <span style={{ fontWeight: 500, color: card.temperature_celsius > 80 ? '#dc2626' : card.temperature_celsius > 70 ? '#f59e0b' : '#059669' }}>
+                                          {card.temperature_celsius.toFixed(1)}°C
+                                        </span>
+                                      </div>
+                                    )}
+                                    {card?.power_draw_watts != null && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>功耗:</span>
+                                        <span style={{ fontWeight: 500 }}>{card.power_draw_watts.toFixed(1)}W</span>
+                                      </div>
+                                    )}
+                                    {card?.memory_clock_mhz != null && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>显存频率:</span>
+                                        <span style={{ fontWeight: 500 }}>{card.memory_clock_mhz.toFixed(0)} MHz</span>
+                                      </div>
+                                    )}
+                                    {card?.graphics_clock_mhz != null && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>核心频率:</span>
+                                        <span style={{ fontWeight: 500 }}>{card.graphics_clock_mhz.toFixed(0)} MHz</span>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            </List.Item>
-                          )
-                        }}
-                        style={{ maxHeight: 400, overflowY: 'auto' }}
-                      />
-                    </div>
-                  ) : (
-                    <div style={{ padding: 8, color: '#64748b' }}>当前后端未提供逐卡数据</div>
-                  )
+                              </List.Item>
+                            )
+                          }}
+                          style={{ maxHeight: 400, overflowY: 'auto' }}
+                        />
+                      </div>
+                    ) : (
+                      <div style={{ padding: 8, color: '#64748b' }}>当前后端未提供逐卡数据</div>
+                    )
 
-                  return (
-                    <Popover content={content} placement="bottomRight" trigger="click">
-                      <Tag style={{ background: '#fff7ed', borderColor: '#ffedd5', color: '#9a3412', borderRadius: 16, padding: '2px 10px', fontSize: 12, cursor: 'pointer' }}>
-                        <ThunderboltOutlined style={{ marginRight: 6 }} />
-                        显存 总计 {total} · 平均使用率 {average}
-                        <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                      </Tag>
-                    </Popover>
-                  )
-                })()
-              )}
-            </Space>
-          )}
-          {server && server.status !== 'online' && (
-            <Tag style={{ background: '#f1f5f9', borderColor: '#e2e8f0', color: '#334155', borderRadius: 16 }}>
-              设备离线，无法获取信息
-            </Tag>
-          )}
+                    return (
+                      <Popover content={content} placement="bottomRight" trigger="click">
+                        <Tag style={{ 
+                          background: '#fff7ed', 
+                          borderColor: '#ffedd5', 
+                          color: '#9a3412', 
+                          borderRadius: 16, 
+                          padding: '4px 12px', 
+                          fontSize: 12, 
+                          cursor: 'pointer',
+                          margin: 0
+                        }}>
+                          <ThunderboltOutlined style={{ marginRight: 6 }} />
+                          显存 总计 {total} · 平均使用率 {average}
+                          <InfoCircleOutlined style={{ marginLeft: 6 }} />
+                        </Tag>
+                      </Popover>
+                    )
+                  })()
+                )}
+              </>
+            ) : (
+              <Tag style={{ 
+                background: '#f1f5f9', 
+                borderColor: '#e2e8f0', 
+                color: '#334155', 
+                borderRadius: 16,
+                padding: '4px 12px',
+                fontSize: 12,
+                margin: 0
+              }}>
+                设备离线，无法获取信息
+              </Tag>
+            )}
+          </div>
         </div>
         <Space>
           <Button 
