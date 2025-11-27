@@ -35,8 +35,18 @@ const ServerTaskManager: React.FC = () => {
         setServer(serverInfo)
       } catch (error) {
         console.error('Failed to load server info:', error)
-        // 即使加载失败，也设置server为null，避免一直显示loading
-        setServer(null)
+        // 刷新失败时，保留之前的system数据，只更新状态为离线
+        setServer(prev => {
+          if (prev && prev.system) {
+            // 如果之前有system数据，保留它，只更新状态
+            return {
+              ...prev,
+              status: 'offline' as const
+            }
+          }
+          // 如果之前没有数据，设置为null
+          return null
+        })
       } finally {
         setServerInfoLoading(false)
       }
@@ -291,7 +301,7 @@ const ServerTaskManager: React.FC = () => {
               <Tag style={{ background: '#f8fafc', borderColor: '#e2e8f0', color: '#64748b', borderRadius: 16, padding: '4px 12px', fontSize: 12 }}>
                 加载中...
               </Tag>
-            ) : server && server.status === 'online' && server.system ? (
+            ) : server && server.system ? (
               <>
                 <Tooltip
                   title={
