@@ -134,7 +134,7 @@ const ServerLogViewer: React.FC = () => {
           borderRadius: 12,
           boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
         }}
-        bodyStyle={{ padding: '16px 24px' }}
+        styles={{ body: { padding: '16px 24px' } }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ flex: 1, minWidth: 200 }}>

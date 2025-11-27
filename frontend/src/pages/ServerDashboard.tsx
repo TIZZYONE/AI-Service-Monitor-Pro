@@ -122,7 +122,7 @@ const ServerDashboard: React.FC = () => {
           borderRadius: 12,
           boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
         }}
-        bodyStyle={{ padding: '16px 24px' }}
+        styles={{ body: { padding: '16px 24px' } }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <Title level={2} style={{ margin: 0 }}>服务器管理</Title>
@@ -215,12 +215,14 @@ const ServerDashboard: React.FC = () => {
                 e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
                 e.currentTarget.style.transform = 'translateY(0)'
               }}
-              bodyStyle={{ 
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                height: '100%'
+              styles={{ 
+                body: {
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  height: '100%'
+                }
               }}
             >
               <div style={{ textAlign: 'center' }}>

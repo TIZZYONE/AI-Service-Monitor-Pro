@@ -6,15 +6,13 @@ import {
   EditOutlined, 
   DeleteOutlined,
   ClockCircleOutlined,
-  CodeOutlined,
-  CaretRightOutlined
+  CodeOutlined
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { Task } from '../types'
 
 const { Text, Paragraph } = Typography
-const { Panel } = Collapse
 
 interface TaskCardProps {
   task: Task
@@ -52,7 +50,22 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const copyCommand = async (command: string, commandName: string, e: React.MouseEvent) => {
     e.stopPropagation()
     try {
-      await navigator.clipboard.writeText(command)
+      // 兼容性处理：优先使用 Clipboard API，如果不支持则使用传统方法
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(command)
+      } else {
+        // 降级方案：使用传统的复制方法
+        const textArea = document.createElement('textarea')
+        textArea.value = command
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
       message.success(`${commandName}已复制到剪贴板`)
     } catch (error) {
       message.error('复制失败')
@@ -141,12 +154,14 @@ const TaskCard: React.FC<TaskCardProps> = ({
         e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
         e.currentTarget.style.transform = 'translateY(0)'
       }}
-      bodyStyle={{ 
-        flex: 1, 
-        display: 'flex', 
-        flexDirection: 'column',
-        padding: '16px',
-        overflow: 'hidden'
+      styles={{
+        body: {
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column',
+          padding: '16px',
+          overflow: 'hidden'
+        }
       }}
       title={
         <Space>
@@ -240,111 +255,113 @@ const TaskCard: React.FC<TaskCardProps> = ({
             ghost
             activeKey={expandedKeys}
             onChange={setExpandedKeys}
-            expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} style={{ fontSize: '16px', color: '#666' }} />}
+            expandIcon={() => <CodeOutlined style={{ fontSize: '16px', color: '#10a37f' }} />}
             style={{ background: 'transparent' }}
-          >
-            <Panel 
-              header={
-                <div 
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    copyCommand(task.activate_env_command, '激活命令', e)
-                  }}
-                  style={{ 
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    display: 'inline-block'
-                  }}
-                >
-                  <Text 
-                    type="secondary" 
+            items={[
+              {
+                key: 'activate',
+                label: (
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      copyCommand(task.activate_env_command, '激活命令', e)
+                    }}
                     style={{ 
-                      fontSize: '12px', 
-                      fontWeight: 500
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      display: 'inline-block'
                     }}
                   >
-                    <CodeOutlined style={{ marginRight: 4 }} />
-                    激活命令
-                  </Text>
-                </div>
-              } 
-              key="activate"
-              style={{ 
-                padding: 0,
-                border: 'none'
-              }}
-            >
-              <Paragraph 
-                code 
-                copyable 
-                style={{ 
-                  margin: 0, 
-                  fontSize: '12px',
-                  wordBreak: 'break-all',
-                  whiteSpace: 'pre-wrap',
-                  background: '#f5f5f5',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  maxHeight: '80px',
-                  overflow: 'auto',
-                  lineHeight: '1.5'
-                }}
-              >
-                {task.activate_env_command}
-              </Paragraph>
-            </Panel>
-            
-            <Panel 
-              header={
-                <div 
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    copyCommand(task.main_program_command, '主程序命令', e)
-                  }}
-                  style={{ 
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    display: 'inline-block'
-                  }}
-                >
-                  <Text 
-                    type="secondary" 
+                    <Text 
+                      type="secondary" 
+                      style={{ 
+                        fontSize: '12px', 
+                        fontWeight: 500
+                      }}
+                    >
+                      <CodeOutlined style={{ marginRight: 4 }} />
+                      激活命令
+                    </Text>
+                  </div>
+                ),
+                children: (
+                  <Paragraph 
+                    code 
+                    copyable 
                     style={{ 
-                      fontSize: '12px', 
-                      fontWeight: 500
+                      margin: 0, 
+                      fontSize: '12px',
+                      wordBreak: 'break-all',
+                      whiteSpace: 'pre-wrap',
+                      background: '#f5f5f5',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      maxHeight: '80px',
+                      overflow: 'auto',
+                      lineHeight: '1.5'
                     }}
                   >
-                    <CodeOutlined style={{ marginRight: 4 }} />
-                    主程序命令
-                  </Text>
-                </div>
-              } 
-              key="main"
-              style={{ 
-                padding: 0,
-                border: 'none'
-              }}
-            >
-              <Paragraph 
-                code 
-                copyable 
-                style={{ 
-                  margin: 0, 
-                  fontSize: '12px',
-                  wordBreak: 'break-all',
-                  whiteSpace: 'pre-wrap',
-                  background: '#f5f5f5',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  maxHeight: '120px',
-                  overflow: 'auto',
-                  lineHeight: '1.5'
-                }}
-              >
-                {task.main_program_command}
-              </Paragraph>
-            </Panel>
-          </Collapse>
+                    {task.activate_env_command}
+                  </Paragraph>
+                ),
+                style: { 
+                  padding: 0,
+                  border: 'none'
+                }
+              },
+              {
+                key: 'main',
+                label: (
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      copyCommand(task.main_program_command, '主程序命令', e)
+                    }}
+                    style={{ 
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      display: 'inline-block'
+                    }}
+                  >
+                    <Text 
+                      type="secondary" 
+                      style={{ 
+                        fontSize: '12px', 
+                        fontWeight: 500
+                      }}
+                    >
+                      <CodeOutlined style={{ marginRight: 4 }} />
+                      主程序命令
+                    </Text>
+                  </div>
+                ),
+                children: (
+                  <Paragraph 
+                    code 
+                    copyable 
+                    style={{ 
+                      margin: 0, 
+                      fontSize: '12px',
+                      wordBreak: 'break-all',
+                      whiteSpace: 'pre-wrap',
+                      background: '#f5f5f5',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      maxHeight: '120px',
+                      overflow: 'auto',
+                      lineHeight: '1.5'
+                    }}
+                  >
+                    {task.main_program_command}
+                  </Paragraph>
+                ),
+                style: { 
+                  padding: 0,
+                  border: 'none'
+                }
+              }
+            ]}
+          />
         </div>
 
         {/* 底部信息 */}

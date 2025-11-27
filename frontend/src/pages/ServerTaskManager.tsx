@@ -534,7 +534,7 @@ const ServerTaskManager: React.FC = () => {
           borderRadius: 12,
           boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
         }}
-        bodyStyle={{ padding: '16px' }}
+        styles={{ body: { padding: '16px' } }}
       >
         <Space wrap style={{ width: '100%' }} size="middle">
           <Input
@@ -644,7 +644,7 @@ const ServerTaskManager: React.FC = () => {
         onCancel={handleCancel}
         footer={null}
         width={600}
-        destroyOnClose={true}
+        destroyOnHidden={true}
       >
         <TaskForm
           initialValues={editingTask || undefined}
