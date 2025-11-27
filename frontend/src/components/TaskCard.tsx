@@ -8,6 +8,7 @@ import {
   ClockCircleOutlined,
   CodeOutlined
 } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { Task } from '../types'
 
@@ -15,6 +16,7 @@ const { Text, Paragraph } = Typography
 
 interface TaskCardProps {
   task: Task
+  serverId?: string
   onStart: (id: number) => void
   onStop: (id: number) => void
   onEdit: (task: Task) => void
@@ -31,6 +33,7 @@ interface TaskCardProps {
 
 const TaskCard: React.FC<TaskCardProps> = ({
   task,
+  serverId,
   onStart,
   onStop,
   onEdit,
@@ -40,6 +43,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onSelectChange,
   showCheckbox = false,
 }) => {
+  const navigate = useNavigate()
+
   const getStatusTag = (status: string) => {
     const statusConfig = {
       running: { color: 'green', text: '运行中' },
@@ -65,9 +70,29 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const canStart = task.status === 'stopped' || task.status === 'pending' || task.status === 'error'
   const canStop = task.status === 'running'
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    // 如果点击的是按钮、复选框或其他交互元素，不跳转
+    const target = e.target as HTMLElement
+    if (
+      target.closest('button') ||
+      target.closest('.ant-checkbox') ||
+      target.closest('.ant-checkbox-wrapper') ||
+      target.closest('.ant-popconfirm')
+    ) {
+      return
+    }
+    
+    // 跳转到日志查看页面
+    if (serverId) {
+      navigate(`/servers/${serverId}/logs?taskId=${task.id}`)
+    }
+  }
+
   return (
     <Card
       className="task-card"
+      style={{ cursor: serverId ? 'pointer' : 'default' }}
+      onClick={handleCardClick}
       title={
         <Space>
           {showCheckbox && (

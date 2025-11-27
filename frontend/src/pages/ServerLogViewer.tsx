@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Typography, Space, Breadcrumb, message, Select } from 'antd'
 import { ArrowLeftOutlined, HomeOutlined, CloudServerOutlined } from '@ant-design/icons'
 import RealTimeLogViewer from '../components/RealTimeLogViewer'
@@ -13,6 +13,7 @@ const { Option } = Select
 const ServerLogViewer: React.FC = () => {
   const { serverId } = useParams<{ serverId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [tasks, setTasks] = useState<Task[]>([])
   const [logs, setLogs] = useState<TaskLog[]>([])
   const [selectedTaskId, setSelectedTaskId] = useState<number | undefined>()
@@ -35,6 +36,30 @@ const ServerLogViewer: React.FC = () => {
     void init()
   }, [serverId, navigate])
 
+  useEffect(() => {
+    // 从 URL 参数中获取 taskId
+    const taskIdParam = searchParams.get('taskId')
+    if (taskIdParam && serverId) {
+      const taskId = parseInt(taskIdParam, 10)
+      if (!isNaN(taskId) && tasks.length > 0) {
+        // 验证任务是否存在
+        const taskExists = tasks.some(task => task.id === taskId)
+        if (taskExists && selectedTaskId !== taskId) {
+          setSelectedTaskId(taskId)
+          // 加载该任务的日志
+          multiServerApi.getTaskLogs(serverId, taskId)
+            .then(logList => {
+              setLogs(logList)
+            })
+            .catch(error => {
+              message.error('加载任务日志失败')
+              console.error('加载任务日志失败:', error)
+            })
+        }
+      }
+    }
+  }, [searchParams, tasks, serverId, selectedTaskId])
+
   const loadData = async () => {
     if (!serverId) return
 
@@ -43,6 +68,22 @@ const ServerLogViewer: React.FC = () => {
       // 先加载任务列表
       const taskList = await multiServerApi.getTasks(serverId)
       setTasks(taskList)
+      
+      // 检查 URL 参数中是否有 taskId
+      const taskIdParam = searchParams.get('taskId')
+      if (taskIdParam) {
+        const taskId = parseInt(taskIdParam, 10)
+        if (!isNaN(taskId)) {
+          const taskExists = taskList.some(task => task.id === taskId)
+          if (taskExists) {
+            setSelectedTaskId(taskId)
+            const logList = await multiServerApi.getTaskLogs(serverId, taskId)
+            setLogs(logList)
+            setLoading(false)
+            return
+          }
+        }
+      }
       
       // 如果有任务，自动选择第一个任务并加载其日志
       if (taskList.length > 0) {

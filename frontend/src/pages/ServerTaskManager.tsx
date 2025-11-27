@@ -533,6 +533,7 @@ const ServerTaskManager: React.FC = () => {
             <TaskCard
               key={task.id}
               task={task}
+              serverId={serverId}
               onEdit={handleEditTask}
               onDelete={handleDeleteTask}
               onStart={handleStartTask}
