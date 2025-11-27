@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Layout, Menu, Breadcrumb, Button } from 'antd'
-import { AppstoreOutlined, FileTextOutlined, ArrowLeftOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, FileTextOutlined, ArrowLeftOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import ServerTaskManager from '../pages/ServerTaskManager'
 import ServerLogViewer from '../pages/ServerLogViewer'
 import { multiServerApi } from '../services/multiServerApi'
@@ -15,6 +15,7 @@ const ServerLayout: React.FC = () => {
   const { serverId } = useParams<{ serverId: string }>()
   const [server, setServer] = useState<Server | null>(null)
   const [loading, setLoading] = useState(true)
+  const [collapsed, setCollapsed] = useState(true) // 默认收起
   const isFirstLoadRef = useRef(true)
 
   useEffect(() => {
@@ -119,7 +120,43 @@ const ServerLayout: React.FC = () => {
         </div>
         
         <Layout>
-          <Sider width={200} theme="light" style={{ borderRadius: 12, background: '#ffffff' }}>
+          <Sider 
+            collapsible
+            collapsed={collapsed}
+            onCollapse={setCollapsed}
+            width={200}
+            collapsedWidth={80}
+            theme="light" 
+            style={{ 
+              borderRadius: 12, 
+              background: '#ffffff',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+              marginRight: 16,
+              overflow: 'hidden'
+            }}
+            trigger={
+              <div style={{ 
+                padding: '12px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                borderTop: '1px solid #f0f0f0',
+                color: '#666',
+                transition: 'all 0.3s',
+                fontSize: '16px'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#f5f5f5'
+                e.currentTarget.style.color = '#10a37f'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = '#666'
+              }}
+              >
+                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              </div>
+            }
+          >
             <Menu
               mode="inline"
               selectedKeys={[location.pathname]}
@@ -127,10 +164,15 @@ const ServerLayout: React.FC = () => {
               onClick={({ key }) => {
                 navigate(key)
               }}
+              style={{ 
+                border: 'none',
+                borderRadius: 12,
+                height: 'calc(100% - 48px)'
+              }}
             />
           </Sider>
-          <Layout style={{ padding: '0 24px' }}>
-            <Content>
+          <Layout style={{ padding: 0, background: 'transparent' }}>
+            <Content style={{ background: 'transparent' }}>
               <Routes>
                 <Route path="tasks" element={<ServerTaskManager />} />
                 <Route path="logs" element={<ServerLogViewer />} />

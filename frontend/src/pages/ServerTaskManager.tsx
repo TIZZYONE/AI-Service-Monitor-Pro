@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Typography, Space, message, Spin, Modal, Tag, Popover, List, Tooltip } from 'antd'
-import { ThunderboltOutlined, ReloadOutlined, PlusOutlined, CheckSquareOutlined, ExclamationCircleOutlined, DashboardOutlined, HddOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { Button, Typography, Space, message, Modal, Tag, Popover, List, Tooltip, Input, Select, Card, Empty, Skeleton } from 'antd'
+import { ThunderboltOutlined, ReloadOutlined, PlusOutlined, CheckSquareOutlined, ExclamationCircleOutlined, DashboardOutlined, HddOutlined, InfoCircleOutlined, SearchOutlined, FilterOutlined } from '@ant-design/icons'
 import TaskCard from '../components/TaskCard'
 import TaskForm from '../components/TaskForm'
 import { Task, TaskCreate, TaskUpdate, Server } from '../types'
@@ -10,6 +10,7 @@ import { serverConfigManager } from '../services/serverConfig'
 import { parseGpuUsage } from '../utils/gpu'
 
 const { Title } = Typography
+const { Option } = Select
 
 const ServerTaskManager: React.FC = () => {
   const { serverId } = useParams<{ serverId: string }>()
@@ -21,7 +22,9 @@ const ServerTaskManager: React.FC = () => {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set())
   const [batchStarting, setBatchStarting] = useState(false)
   const [server, setServer] = useState<Server | null>(null)
-  const [serverInfoLoading, setServerInfoLoading] = useState(true)
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [repeatTypeFilter, setRepeatTypeFilter] = useState<string>('all')
 
   const [serverConfigState, setServerConfigState] = useState(serverId ? serverConfigManager.getServer(serverId) : null)
 
@@ -30,30 +33,18 @@ const ServerTaskManager: React.FC = () => {
     const loadServerInfo = async () => {
       if (!serverId) return
       try {
-        setServerInfoLoading(true)
         const serverInfo = await multiServerApi.getServerInfo(serverId)
         setServer(serverInfo)
       } catch (error) {
         console.error('Failed to load server info:', error)
-        // 刷新失败时，保留之前的system数据，只更新状态为离线
-        setServer(prev => {
-          if (prev && prev.system) {
-            // 如果之前有system数据，保留它，只更新状态
-            return {
-              ...prev,
-              status: 'offline' as const
-            }
-          }
-          // 如果之前没有数据，设置为null
-          return null
-        })
-      } finally {
-        setServerInfoLoading(false)
+        // 加载失败时，保留之前的数据，不做任何更新
+        // 这样用户看到的是之前的数据，而不是"已离线"状态
       }
     }
 
-    // 立即加载一次
+    // 立即加载一次（静默加载，不显示loading状态）
     loadServerInfo()
+    
     // 每10秒刷新一次系统信息
     const interval = setInterval(() => {
       loadServerInfo()
@@ -280,8 +271,36 @@ const ServerTaskManager: React.FC = () => {
     })
   }
 
+  // 过滤任务
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => {
+      // 搜索关键词过滤
+      if (searchKeyword) {
+        const keyword = searchKeyword.toLowerCase()
+        const matchName = task.name.toLowerCase().includes(keyword)
+        const matchCommand = task.activate_env_command.toLowerCase().includes(keyword) ||
+                           task.main_program_command.toLowerCase().includes(keyword)
+        if (!matchName && !matchCommand) {
+          return false
+        }
+      }
+
+      // 状态过滤
+      if (statusFilter !== 'all' && task.status !== statusFilter) {
+        return false
+      }
+
+      // 重复类型过滤
+      if (repeatTypeFilter !== 'all' && task.repeat_type !== repeatTypeFilter) {
+        return false
+      }
+
+      return true
+    })
+  }, [tasks, searchKeyword, statusFilter, repeatTypeFilter])
+
   return (
-    <div style={{ padding: '16px 24px' }}>
+    <div style={{ padding: 0 }}>
       {/* 页面头部 */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ 
@@ -297,11 +316,7 @@ const ServerTaskManager: React.FC = () => {
           </Title>
           {/* 服务器信息 */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {serverInfoLoading ? (
-              <Tag style={{ background: '#f8fafc', borderColor: '#e2e8f0', color: '#64748b', borderRadius: 16, padding: '4px 12px', fontSize: 12 }}>
-                加载中...
-              </Tag>
-            ) : server && server.system ? (
+            {server && server.system ? (
               <>
                 <Tooltip
                   title={
@@ -476,19 +491,7 @@ const ServerTaskManager: React.FC = () => {
                   })()
                 )}
               </>
-            ) : (
-              <Tag style={{ 
-                background: '#f1f5f9', 
-                borderColor: '#e2e8f0', 
-                color: '#334155', 
-                borderRadius: 16,
-                padding: '4px 12px',
-                fontSize: 12,
-                margin: 0
-              }}>
-                设备离线，无法获取信息
-              </Tag>
-            )}
+            ) : null}
           </div>
         </div>
         <Space>
@@ -524,32 +527,114 @@ const ServerTaskManager: React.FC = () => {
         </Space>
       </div>
 
-
+      {/* 搜索和筛选栏 */}
+      <Card 
+        style={{ 
+          marginBottom: 16, 
+          borderRadius: 12,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+        }}
+        bodyStyle={{ padding: '16px' }}
+      >
+        <Space wrap style={{ width: '100%' }} size="middle">
+          <Input
+            placeholder="搜索任务名称或命令..."
+            prefix={<SearchOutlined style={{ color: '#999' }} />}
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            allowClear
+            style={{ width: 300 }}
+          />
+          <Select
+            placeholder="状态筛选"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            style={{ width: 120 }}
+            suffixIcon={<FilterOutlined />}
+          >
+            <Option value="all">全部状态</Option>
+            <Option value="running">运行中</Option>
+            <Option value="stopped">已停止</Option>
+            <Option value="pending">等待中</Option>
+            <Option value="error">错误</Option>
+          </Select>
+          <Select
+            placeholder="重复类型"
+            value={repeatTypeFilter}
+            onChange={setRepeatTypeFilter}
+            style={{ width: 120 }}
+          >
+            <Option value="all">全部类型</Option>
+            <Option value="none">仅一次</Option>
+            <Option value="daily">每日</Option>
+            <Option value="weekly">每周</Option>
+            <Option value="monthly">每月</Option>
+          </Select>
+          {(searchKeyword || statusFilter !== 'all' || repeatTypeFilter !== 'all') && (
+            <Button 
+              type="text" 
+              onClick={() => {
+                setSearchKeyword('')
+                setStatusFilter('all')
+                setRepeatTypeFilter('all')
+              }}
+            >
+              清除筛选
+            </Button>
+          )}
+          <div style={{ flex: 1, textAlign: 'right', color: '#999', fontSize: 14 }}>
+            共 {filteredTasks.length} 个任务
+          </div>
+        </Space>
+      </Card>
 
       {/* 任务列表 */}
-      <Spin spinning={loading}>
+      {loading && tasks.length === 0 ? (
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
-          {tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              serverId={serverId}
-              onEdit={handleEditTask}
-              onDelete={handleDeleteTask}
-              onStart={handleStartTask}
-              onStop={handleStopTask}
-              selected={selectedTaskIds.has(task.id)}
-              onSelectChange={handleSelectChange}
-              showCheckbox={true}
-            />
+          {[1, 2, 3].map(i => (
+            <Card key={i} style={{ borderRadius: 12 }}>
+              <Skeleton active paragraph={{ rows: 4 }} />
+            </Card>
           ))}
         </div>
-      </Spin>
-
-      {tasks.length === 0 && !loading && (
-        <div style={{ textAlign: 'center', padding: '48px', color: '#999' }}>
-          暂无任务，点击"创建任务"开始添加
-        </div>
+      ) : (
+        <>
+          {filteredTasks.length === 0 ? (
+            <Card style={{ borderRadius: 12 }}>
+              <Empty
+                description={
+                  tasks.length === 0 
+                    ? '暂无任务，点击"创建任务"开始添加'
+                    : '没有找到匹配的任务'
+                }
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              >
+                {tasks.length === 0 && (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>
+                    创建任务
+                  </Button>
+                )}
+              </Empty>
+            </Card>
+          ) : (
+            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
+              {filteredTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  serverId={serverId}
+                  onEdit={handleEditTask}
+                  onDelete={handleDeleteTask}
+                  onStart={handleStartTask}
+                  onStop={handleStopTask}
+                  selected={selectedTaskIds.has(task.id)}
+                  onSelectChange={handleSelectChange}
+                  showCheckbox={true}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Task Form Modal */}

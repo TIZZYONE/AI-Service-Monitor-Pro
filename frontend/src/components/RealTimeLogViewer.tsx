@@ -27,7 +27,7 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
   serverId,
   selectedTaskId,
   currentTask,
-  height = 400 
+  height = 600 
 }) => {
   const [logContent, setLogContent] = useState('')
   const [selectedLogPath, setSelectedLogPath] = useState<string>('')
@@ -266,11 +266,16 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
 
   return (
     <Card
+      style={{
+        borderRadius: 12,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+      }}
       title={
         <Space>
+          <FileTextOutlined style={{ color: '#10a37f' }} />
           <Text strong>
-            日志查看器 
-            {selectedTaskId && ` - 任务 ${selectedTaskId}`}
+            日志查看器
+            {currentTask && ` - ${currentTask.name}`}
           </Text>
           {wsUrl && getConnectionStatus()}
         </Space>
@@ -280,8 +285,9 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
           icon={<DownloadOutlined />}
           onClick={handleDownload}
           disabled={!logContent}
+          type="primary"
         >
-          下载
+          下载日志
         </Button>
       }
     >

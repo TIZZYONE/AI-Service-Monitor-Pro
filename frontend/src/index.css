@@ -32,12 +32,7 @@ body {
 }
 
 .task-card {
-  margin-bottom: 16px;
-  transition: all 0.3s ease;
-}
-
-.task-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  margin-bottom: 0;
 }
 
 .log-viewer {

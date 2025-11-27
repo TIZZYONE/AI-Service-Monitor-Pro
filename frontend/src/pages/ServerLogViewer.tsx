@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Typography, Space, Breadcrumb, message, Select } from 'antd'
-import { ArrowLeftOutlined, HomeOutlined, CloudServerOutlined } from '@ant-design/icons'
+import { Button, Typography, Space, Breadcrumb, message, Select, Card, Skeleton, Tag } from 'antd'
+import { ArrowLeftOutlined, HomeOutlined, CloudServerOutlined, ClockCircleOutlined, AppstoreOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import RealTimeLogViewer from '../components/RealTimeLogViewer'
 import { TaskLog, Task } from '../types'
 import { multiServerApi } from '../services/multiServerApi'
 import { serverConfigManager } from '../services/serverConfig'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 const { Option } = Select
 
 const ServerLogViewer: React.FC = () => {
@@ -20,6 +21,9 @@ const ServerLogViewer: React.FC = () => {
   const [loading, setLoading] = useState(true)
 
   const [serverConfigState, setServerConfigState] = useState(serverId ? serverConfigManager.getServer(serverId) : null)
+
+  // 获取当前选中的任务
+  const currentTask = tasks.find(task => task.id === selectedTaskId)
 
   useEffect(() => {
     const init = async () => {
@@ -122,42 +126,112 @@ const ServerLogViewer: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: 0 }}>
       {/* 页面头部 */}
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <Title level={2} style={{ margin: 0 }}>
-            {serverConfigState.name} - 日志查看
-          </Title>
+      <Card 
+        style={{ 
+          marginBottom: 16, 
+          borderRadius: 12,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+        }}
+        bodyStyle={{ padding: '16px 24px' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <Button
+                icon={<ArrowLeftOutlined />}
+                onClick={() => navigate(`/servers/${serverId}/tasks`)}
+                type="text"
+                style={{ padding: '4px 8px' }}
+              >
+                返回任务管理
+              </Button>
+              <Title level={2} style={{ margin: 0 }}>
+                {serverConfigState.name} - 日志查看
+              </Title>
+            </div>
+            {currentTask && (
+              <Space wrap>
+                <Tag color={
+                  currentTask.status === 'running' ? 'green' :
+                  currentTask.status === 'stopped' ? 'red' :
+                  currentTask.status === 'pending' ? 'orange' : 'default'
+                }>
+                  {currentTask.status === 'running' ? '运行中' :
+                   currentTask.status === 'stopped' ? '已停止' :
+                   currentTask.status === 'pending' ? '等待中' : currentTask.status}
+                </Tag>
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  <ClockCircleOutlined style={{ marginRight: 4 }} />
+                  创建于 {dayjs(currentTask.created_at).format('YYYY-MM-DD HH:mm')}
+                </Text>
+              </Space>
+            )}
+          </div>
+          <Space wrap>
+            <Select
+              placeholder="选择任务"
+              style={{ width: 250 }}
+              value={selectedTaskId}
+              onChange={handleTaskChange}
+              allowClear
+              loading={loading}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {tasks.map(task => (
+                <Option key={task.id} value={task.id}>
+                  <Space>
+                    <Tag color={
+                      task.status === 'running' ? 'green' :
+                      task.status === 'stopped' ? 'red' :
+                      task.status === 'pending' ? 'orange' : 'default'
+                    } style={{ margin: 0 }}>
+                      {task.status === 'running' ? '运行中' :
+                       task.status === 'stopped' ? '已停止' :
+                       task.status === 'pending' ? '等待中' : task.status}
+                    </Tag>
+                    {task.name}
+                  </Space>
+                </Option>
+              ))}
+            </Select>
+            <Button onClick={loadData} loading={loading}>
+              刷新
+            </Button>
+          </Space>
         </div>
-        <Space>
-          <Select
-            placeholder="选择任务"
-            style={{ width: 200 }}
-            value={selectedTaskId}
-            onChange={handleTaskChange}
-            allowClear
-            loading={loading}
-          >
-            {tasks.map(task => (
-              <Option key={task.id} value={task.id}>
-                {task.name}
-              </Option>
-            ))}
-          </Select>
-          <Button onClick={loadData} loading={loading}>
-            刷新
-          </Button>
-        </Space>
-      </div>
+      </Card>
 
       {/* 日志查看器 */}
-      <RealTimeLogViewer 
-        logs={logs}
-        serverId={serverId}
-        selectedTaskId={selectedTaskId}
-        currentTask={tasks.find(task => task.id === selectedTaskId)}
-      />
+      {loading && logs.length === 0 ? (
+        <Card style={{ borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <Skeleton active paragraph={{ rows: 10 }} />
+        </Card>
+      ) : !selectedTaskId ? (
+        <Card 
+          style={{ 
+            borderRadius: 12, 
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+            textAlign: 'center',
+            padding: '48px'
+          }}
+        >
+          <Text type="secondary" style={{ fontSize: '14px' }}>
+            请选择一个任务查看日志
+          </Text>
+        </Card>
+      ) : (
+        <RealTimeLogViewer 
+          logs={logs}
+          serverId={serverId}
+          selectedTaskId={selectedTaskId}
+          currentTask={currentTask}
+        />
+      )}
     </div>
   )
 }

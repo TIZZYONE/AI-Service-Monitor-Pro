@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Row, Col, Button, Badge, Typography, Space, Modal, Form, Input, InputNumber, message, Popconfirm } from 'antd'
+import { Card, Row, Col, Button, Badge, Typography, Space, Modal, Form, Input, InputNumber, message, Popconfirm, Empty, Skeleton } from 'antd'
 import { CloudServerOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { Server, ServerConfig } from '../types'
@@ -116,23 +116,54 @@ const ServerDashboard: React.FC = () => {
 
   return (
     <div style={{ padding: '24px' }}>
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={2}>服务器管理</Title>
-        <Space>
-          <Button icon={<PlusOutlined />} type="primary" onClick={() => openConfigModal()}>
-            添加服务器
-          </Button>
-          <Button icon={<SettingOutlined />} onClick={loadServers} loading={loading}>
-            刷新状态
-          </Button>
-        </Space>
-      </div>
+      <Card 
+        style={{ 
+          marginBottom: 24, 
+          borderRadius: 12,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+        }}
+        bodyStyle={{ padding: '16px 24px' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+          <Title level={2} style={{ margin: 0 }}>服务器管理</Title>
+          <Space wrap>
+            <Button icon={<PlusOutlined />} type="primary" onClick={() => openConfigModal()}>
+              添加服务器
+            </Button>
+            <Button icon={<SettingOutlined />} onClick={loadServers} loading={loading}>
+              刷新状态
+            </Button>
+          </Space>
+        </div>
+      </Card>
 
-      <Row gutter={[16, 16]}>
-        {servers.map((server) => (
-          <Col xs={24} sm={12} lg={8} xl={6} key={server.id}>
-            <Badge.Ribbon text={getStatusText(server.status)} color={getRibbonColor(server.status)}>
-            <Card
+      {loading && servers.length === 0 ? (
+        <Row gutter={[16, 16]}>
+          {[1, 2, 3, 4].map(i => (
+            <Col xs={24} sm={12} lg={8} xl={6} key={i}>
+              <Card style={{ borderRadius: 12, height: '450px' }}>
+                <Skeleton active paragraph={{ rows: 6 }} />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      ) : servers.length === 0 ? (
+        <Card style={{ borderRadius: 12 }}>
+          <Empty
+            description='暂无服务器，点击"添加服务器"开始添加'
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openConfigModal()}>
+              添加服务器
+            </Button>
+          </Empty>
+        </Card>
+      ) : (
+        <Row gutter={[16, 16]}>
+          {servers.map((server) => (
+            <Col xs={24} sm={12} lg={8} xl={6} key={server.id}>
+              <Badge.Ribbon text={getStatusText(server.status)} color={getRibbonColor(server.status)}>
+              <Card
               hoverable
               actions={[
                 <Button
@@ -171,7 +202,18 @@ const ServerDashboard: React.FC = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 borderRadius: 12,
-                boxShadow: '0 12px 24px rgba(16, 163, 127, 0.06)'
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseEnter={(e) => {
+                if (server.status === 'online') {
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(16, 163, 127, 0.12)'
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
+                e.currentTarget.style.transform = 'translateY(0)'
               }}
               bodyStyle={{ 
                 flex: 1,
@@ -242,6 +284,7 @@ const ServerDashboard: React.FC = () => {
           </Col>
         ))}
       </Row>
+      )}
 
       {/* 服务器配置弹窗 */}
       <Modal
