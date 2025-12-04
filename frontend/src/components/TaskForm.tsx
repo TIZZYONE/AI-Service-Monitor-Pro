@@ -107,6 +107,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
           <Option value="daily">每日</Option>
           <Option value="weekly">每周</Option>
           <Option value="monthly">每月</Option>
+          <Option value="quarterly">每季度</Option>
         </Select>
       </Form.Item>
 

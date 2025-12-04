@@ -1,0 +1,31 @@
+[Unit]
+Description=AI Service Monitor Pro Backend Service
+After=network.target
+
+[Service]
+Type=simple
+# ⚠️ 请修改以下配置项：
+# User: 运行服务的用户名（例如: your_username）
+User=your_username
+
+# WorkingDirectory: 项目backend目录的完整路径（例如: /home/user/AI-Service-Monitor-Pro/backend）
+WorkingDirectory=/path/to/AI-Service-Monitor-Pro/backend
+
+# ExecStart: Python解释器路径和启动命令
+# 如果使用系统Python，使用: /usr/bin/python3
+# 如果使用conda环境，使用conda环境的Python完整路径（例如: /home/user/miniconda3/envs/your_env/bin/python）
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8633
+
+# 如果使用conda环境，可以取消下面的注释并修改路径：
+# ExecStart=/path/to/miniconda3/envs/your_env/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8633
+
+Restart=always
+RestartSec=10
+
+# 日志输出（可选）
+# StandardOutput=journal
+# StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

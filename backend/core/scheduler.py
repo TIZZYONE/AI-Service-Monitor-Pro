@@ -54,6 +54,37 @@ class TaskScheduler:
         
         self.scheduler.shutdown()
     
+    async def stop_all_tasks(self) -> dict:
+        """停止所有正在运行的任务"""
+        running_task_ids = list(self.running_processes.keys())
+        if not running_task_ids:
+            return {"success": True, "stopped_count": 0, "message": "没有正在运行的任务"}
+        
+        success_count = 0
+        fail_count = 0
+        failed_tasks = []
+        
+        for task_id in running_task_ids:
+            try:
+                result = await self.stop_task(task_id)
+                if result:
+                    success_count += 1
+                else:
+                    fail_count += 1
+                    failed_tasks.append(task_id)
+            except Exception as e:
+                logger.error(f"停止任务 {task_id} 时出错: {str(e)}")
+                fail_count += 1
+                failed_tasks.append(task_id)
+        
+        return {
+            "success": fail_count == 0,
+            "stopped_count": success_count,
+            "failed_count": fail_count,
+            "failed_tasks": failed_tasks,
+            "message": f"成功停止 {success_count} 个任务" + (f"，{fail_count} 个失败" if fail_count > 0 else "")
+        }
+    
     def _get_conda_init_command(self) -> str:
         """获取conda初始化命令"""
         import platform

@@ -60,6 +60,14 @@ export const taskApi = {
   // 手动停止任务
   stopTask: (id: number): Promise<Task> => 
     api.post(`/tasks/${id}/stop`),
+
+  // 停止所有任务
+  stopAllTasks: (): Promise<{ success: boolean; stopped_count: number; failed_count: number; message: string }> =>
+    api.post('/tasks/stop-all'),
+
+  // 服务器关机
+  shutdownServer: (): Promise<{ success: boolean; message: string; tasks_stopped?: any }> =>
+    api.post('/system/shutdown'),
 }
 
 // 日志相关API

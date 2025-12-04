@@ -180,6 +180,90 @@ export class MultiServerApiClient {
         .map(result => result.value)
     }
   }
+
+  // 停止所有任务
+  async stopAllTasks(serverId: string): Promise<{ success: boolean; stopped_count: number; failed_count: number; message: string }> {
+    return this.request(serverId, '/api/tasks/stop-all', {
+      method: 'POST',
+    })
+  }
+
+  // 服务器关机
+  async shutdownServer(serverId: string): Promise<{ success: boolean; message: string; tasks_stopped?: any }> {
+    return this.request(serverId, '/api/system/shutdown', {
+      method: 'POST',
+    })
+  }
+
+  // 文件管理相关API
+  async listDirectory(serverId: string, path?: string): Promise<{ current_path: string; parent_path?: string; items: Array<{ name: string; path: string; is_directory: boolean; size?: number; modified_time?: number }> }> {
+    const endpoint = path ? `/api/files/list?path=${encodeURIComponent(path)}` : '/api/files/list'
+    return this.request(serverId, endpoint)
+  }
+
+  async uploadFile(serverId: string, file: File, directory: string): Promise<{ success: boolean; message: string; path: string; filename: string; size: number }> {
+    await serverConfigManager.ensureLoaded()
+    const baseUrl = serverConfigManager.getServerUrl(serverId)
+    if (!baseUrl) {
+      throw new Error(`服务器 ${serverId} 未找到`)
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('directory', directory)
+
+    const response = await fetch(`${baseUrl}/api/files/upload`, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }))
+      throw new Error(error.detail || `上传失败: ${response.status} ${response.statusText}`)
+    }
+
+    return response.json()
+  }
+
+  async downloadFile(serverId: string, path: string): Promise<void> {
+    await serverConfigManager.ensureLoaded()
+    const baseUrl = serverConfigManager.getServerUrl(serverId)
+    if (!baseUrl) {
+      throw new Error(`服务器 ${serverId} 未找到`)
+    }
+
+    const url = `${baseUrl}/api/files/download?path=${encodeURIComponent(path)}`
+    const response = await fetch(url)
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }))
+      throw new Error(error.detail || `下载失败: ${response.status} ${response.statusText}`)
+    }
+
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = path.split(/[/\\]/).pop() || 'download'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+  }
+
+  async getFileContent(serverId: string, path: string, encoding?: string): Promise<{ content: string; path: string; encoding: string }> {
+    const endpoint = encoding 
+      ? `/api/files/content?path=${encodeURIComponent(path)}&encoding=${encodeURIComponent(encoding)}`
+      : `/api/files/content?path=${encodeURIComponent(path)}`
+    return this.request(serverId, endpoint)
+  }
+
+  async saveFileContent(serverId: string, path: string, content: string, encoding?: string): Promise<{ success: boolean; message: string; path: string }> {
+    return this.request(serverId, `/api/files/save?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+      body: JSON.stringify({ content, encoding: encoding || 'utf-8' }),
+    })
+  }
 }
 
 export const multiServerApi = MultiServerApiClient.getInstance()

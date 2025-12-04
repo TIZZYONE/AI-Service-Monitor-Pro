@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 
-from api.routes import tasks, logs, websocket
+from api.routes import tasks, logs, websocket, system, files
 from core.scheduler import TaskScheduler
 from core.database import init_db
 
@@ -57,6 +57,8 @@ app.add_middleware(
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(files.router, prefix="/api/files", tags=["files"])
 
 
 @app.get("/")

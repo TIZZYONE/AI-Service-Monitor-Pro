@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Row, Col, Button, Badge, Typography, Space, Modal, Form, Input, InputNumber, message, Popconfirm, Empty, Skeleton } from 'antd'
-import { CloudServerOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
+import { CloudServerOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined, PoweroffOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { Server, ServerConfig } from '../types'
 import { multiServerApi } from '../services/multiServerApi'
@@ -114,6 +114,30 @@ const ServerDashboard: React.FC = () => {
     }
   }
 
+  // 服务器关机
+  const handleShutdown = async (serverId: string, serverName: string) => {
+    Modal.confirm({
+      title: '确认关机',
+      content: `确定要关闭服务器 "${serverName}" 吗？系统将先停止所有运行的任务，然后执行关机操作。`,
+      okText: '确认关机',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          message.loading({ content: '正在停止所有任务并关机...', key: 'shutdown', duration: 0 })
+          const result = await multiServerApi.shutdownServer(serverId)
+          message.success({ content: result.message || '关机命令已执行', key: 'shutdown' })
+        } catch (error: any) {
+          message.error({ 
+            content: error.message || '关机操作失败', 
+            key: 'shutdown',
+            duration: 5
+          })
+        }
+      }
+    })
+  }
+
   return (
     <div style={{ padding: '24px' }}>
       <Card 
@@ -176,6 +200,28 @@ const ServerDashboard: React.FC = () => {
                 >
                   编辑
                 </Button>,
+                server.status === 'online' ? (
+                  <Popconfirm
+                    title="确定要关闭这个服务器吗？"
+                    description="系统将先停止所有运行的任务，然后执行关机操作。"
+                    onConfirm={(e) => {
+                      e?.stopPropagation()
+                      handleShutdown(server.id, server.name)
+                    }}
+                    okText="确认关机"
+                    cancelText="取消"
+                    okType="danger"
+                  >
+                    <Button 
+                      type="text" 
+                      icon={<PoweroffOutlined />} 
+                      danger
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      关机
+                    </Button>
+                  </Popconfirm>
+                ) : null,
                 <Popconfirm
                   title="确定要删除这个服务器吗？"
                   onConfirm={(e) => {
@@ -194,7 +240,7 @@ const ServerDashboard: React.FC = () => {
                     删除
                   </Button>
                 </Popconfirm>
-              ]}
+              ].filter(Boolean)}
               onClick={() => server.status === 'online' && enterServer(server.id)}
               style={{ 
                 cursor: server.status === 'online' ? 'pointer' : 'default',

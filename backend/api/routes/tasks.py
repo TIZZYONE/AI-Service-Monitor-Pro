@@ -209,3 +209,16 @@ async def stop_task(
     # 返回更新后的任务状态
     updated_task = await service.get_task(task_id)
     return updated_task
+
+
+@router.post("/stop-all", status_code=status.HTTP_200_OK)
+async def stop_all_tasks(
+    db: AsyncSession = Depends(get_db)
+):
+    """停止所有正在运行的任务"""
+    from main import app
+    
+    scheduler = app.state.scheduler
+    result = await scheduler.stop_all_tasks()
+    
+    return result

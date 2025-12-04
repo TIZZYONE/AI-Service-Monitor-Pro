@@ -78,6 +78,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
       running: { color: 'green', text: '运行中' },
       stopped: { color: 'red', text: '已停止' },
       pending: { color: 'orange', text: '等待中' },
+      completed: { color: 'blue', text: '已完成' },
+      failed: { color: 'red', text: '失败' },
       error: { color: 'red', text: '错误' },
     }
     
@@ -107,7 +109,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
     return colorMap[type as keyof typeof colorMap] || 'default'
   }
 
-  const canStart = task.status === 'stopped' || task.status === 'pending' || task.status === 'error'
+  // 除了运行中的任务，其他所有状态都可以启动（包括失败、已完成、已停止、等待中等）
+  const canStart = task.status !== 'running'
   const canStop = task.status === 'running'
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -185,7 +188,10 @@ const TaskCard: React.FC<TaskCardProps> = ({
                 icon={<PlayCircleOutlined />}
                 size="small"
                 loading={loading.start}
-                onClick={() => onStart(task.id)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStart(task.id)
+                }}
               />
             </Tooltip>
           )}
@@ -196,7 +202,10 @@ const TaskCard: React.FC<TaskCardProps> = ({
                 icon={<PauseCircleOutlined />}
                 size="small"
                 loading={loading.stop}
-                onClick={() => onStop(task.id)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStop(task.id)
+                }}
               />
             </Tooltip>
           )}
@@ -204,7 +213,10 @@ const TaskCard: React.FC<TaskCardProps> = ({
             <Button
               icon={<EditOutlined />}
               size="small"
-              onClick={() => onEdit(task)}
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit(task)
+              }}
             />
           </Tooltip>
           <Popconfirm

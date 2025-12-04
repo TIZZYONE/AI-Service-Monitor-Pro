@@ -10,9 +10,10 @@ import {
   Empty,
   Alert,
   Select,
-  Card
+  Card,
+  message
 } from 'antd'
-import { PlusOutlined, ReloadOutlined, CloudServerOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, CloudServerOutlined, StopOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import TaskCard from '../components/TaskCard'
 import TaskForm from '../components/TaskForm'
 import { 
@@ -33,6 +34,8 @@ import {
 } from '../hooks/useMultiServerTasks'
 import { Task, TaskCreate, TaskUpdate, ServerConfig } from '../types'
 import { serverConfigManager } from '../services/serverConfig'
+import { multiServerApi } from '../services/multiServerApi'
+import { taskApi } from '../services/api'
 
 const { Title } = Typography
 
@@ -157,6 +160,55 @@ const TaskManager: React.FC = () => {
     }
   }
 
+  const handleStopAllTasks = async () => {
+    const runningTasks = tasks?.filter(task => task.status === 'running') || []
+    if (runningTasks.length === 0) {
+      message.warning('没有正在运行的任务')
+      return
+    }
+
+    Modal.confirm({
+      title: '确认停止所有任务',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定要停止所有正在运行的任务吗？</p>
+          <p>共有 <strong>{runningTasks.length}</strong> 个任务正在运行。</p>
+        </div>
+      ),
+      okText: '确认停止',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          message.loading({ content: '正在停止所有任务...', key: 'stopAll', duration: 0 })
+          if (isMultiServerMode && selectedServerId) {
+            const result = await multiServerApi.stopAllTasks(selectedServerId)
+            message.success({ 
+              content: result.message || `成功停止 ${result.stopped_count} 个任务`, 
+              key: 'stopAll',
+              duration: 5
+            })
+          } else {
+            const result = await taskApi.stopAllTasks()
+            message.success({ 
+              content: result.message || `成功停止 ${result.stopped_count} 个任务`, 
+              key: 'stopAll',
+              duration: 5
+            })
+          }
+          await refetch()
+        } catch (error: any) {
+          message.error({ 
+            content: error.message || '停止任务失败', 
+            key: 'stopAll',
+            duration: 5
+          })
+        }
+      }
+    })
+  }
+
   const handleCancel = () => {
     setIsModalVisible(false)
     setEditingTask(null)
@@ -172,6 +224,15 @@ const TaskManager: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Title level={2} style={{ margin: 0 }}>任务管理</Title>
           <Space>
+            {runningTasks.length > 0 && (
+              <Button 
+                danger
+                icon={<StopOutlined />}
+                onClick={handleStopAllTasks}
+              >
+                一键关闭所有服务 ({runningTasks.length})
+              </Button>
+            )}
             <Button 
               icon={<ReloadOutlined />} 
               onClick={() => refetch()}

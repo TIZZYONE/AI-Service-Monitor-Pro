@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Layout, Menu, Breadcrumb, Button } from 'antd'
-import { AppstoreOutlined, FileTextOutlined, ArrowLeftOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, FileTextOutlined, FolderOutlined, ArrowLeftOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import ServerTaskManager from '../pages/ServerTaskManager'
 import ServerLogViewer from '../pages/ServerLogViewer'
+import ServerFileManager from '../pages/ServerFileManager'
 import { multiServerApi } from '../services/multiServerApi'
 import type { Server } from '../types'
 
@@ -61,6 +62,11 @@ const ServerLayout: React.FC = () => {
       label: '任务管理',
     },
     {
+      key: `/servers/${serverId}/files`,
+      icon: <FolderOutlined />,
+      label: '文件管理',
+    },
+    {
       key: `/servers/${serverId}/logs`,
       icon: <FileTextOutlined />,
       label: '日志查看',
@@ -113,7 +119,14 @@ const ServerLayout: React.FC = () => {
               items={[
                 { title: <span style={{ color: '#64748b' }}>服务器管理</span> },
                 { title: <span style={{ color: '#64748b' }}>{server.name}</span> },
-                { title: <span style={{ color: '#0f172a' }}>{location.pathname.includes('/tasks') ? '任务管理' : '日志查看'}</span> }
+                { 
+                  title: <span style={{ color: '#0f172a' }}>{
+                    location.pathname.includes('/tasks') ? '任务管理' : 
+                    location.pathname.includes('/files') ? '文件管理' : 
+                    location.pathname.includes('/logs') ? '日志查看' : 
+                    '任务管理'
+                  }</span> 
+                }
               ]}
             />
           </div>
@@ -175,6 +188,7 @@ const ServerLayout: React.FC = () => {
             <Content style={{ background: 'transparent' }}>
               <Routes>
                 <Route path="tasks" element={<ServerTaskManager />} />
+                <Route path="files" element={<ServerFileManager />} />
                 <Route path="logs" element={<ServerLogViewer />} />
                 <Route path="" element={<ServerTaskManager />} />
               </Routes>

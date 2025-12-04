@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Button, Typography, Space, message, Modal, Tag, Popover, List, Tooltip, Input, Select, Card, Empty, Skeleton } from 'antd'
-import { ThunderboltOutlined, ReloadOutlined, PlusOutlined, CheckSquareOutlined, ExclamationCircleOutlined, DashboardOutlined, HddOutlined, InfoCircleOutlined, SearchOutlined, FilterOutlined } from '@ant-design/icons'
+import { ThunderboltOutlined, ReloadOutlined, PlusOutlined, CheckSquareOutlined, ExclamationCircleOutlined, DashboardOutlined, HddOutlined, InfoCircleOutlined, SearchOutlined, FilterOutlined, StopOutlined } from '@ant-design/icons'
 import TaskCard from '../components/TaskCard'
 import TaskForm from '../components/TaskForm'
 import { Task, TaskCreate, TaskUpdate, Server } from '../types'
@@ -168,6 +168,48 @@ const ServerTaskManager: React.FC = () => {
       message.error('停止任务失败')
       console.error('停止任务失败:', error)
     }
+  }
+
+  const handleStopAllTasks = async () => {
+    if (!serverId) return
+
+    const runningTasks = tasks.filter(task => task.status === 'running')
+    if (runningTasks.length === 0) {
+      message.warning('没有正在运行的任务')
+      return
+    }
+
+    Modal.confirm({
+      title: '确认停止所有任务',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定要停止所有正在运行的任务吗？</p>
+          <p>共有 <strong>{runningTasks.length}</strong> 个任务正在运行。</p>
+        </div>
+      ),
+      okText: '确认停止',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          message.loading({ content: '正在停止所有任务...', key: 'stopAll', duration: 0 })
+          const result = await multiServerApi.stopAllTasks(serverId)
+          message.success({ 
+            content: result.message || `成功停止 ${result.stopped_count} 个任务`, 
+            key: 'stopAll',
+            duration: 5
+          })
+          await loadTasks()
+        } catch (error: any) {
+          message.error({ 
+            content: error.message || '停止任务失败', 
+            key: 'stopAll',
+            duration: 5
+          })
+        }
+      }
+    })
   }
 
   const handleSelectChange = (taskId: number, selected: boolean) => {
@@ -503,6 +545,15 @@ const ServerTaskManager: React.FC = () => {
           >
             一键启动{selectedTaskIds.size > 0 ? ` (${selectedTaskIds.size})` : ''}
           </Button>
+          {tasks.filter(task => task.status === 'running').length > 0 && (
+            <Button 
+              danger
+              icon={<StopOutlined />}
+              onClick={handleStopAllTasks}
+            >
+              一键关闭所有服务 ({tasks.filter(task => task.status === 'running').length})
+            </Button>
+          )}
           <Button 
             icon={<CheckSquareOutlined />}
             onClick={handleSelectAll}
@@ -556,6 +607,8 @@ const ServerTaskManager: React.FC = () => {
             <Option value="running">运行中</Option>
             <Option value="stopped">已停止</Option>
             <Option value="pending">等待中</Option>
+            <Option value="completed">已完成</Option>
+            <Option value="failed">失败</Option>
             <Option value="error">错误</Option>
           </Select>
           <Select
@@ -569,6 +622,7 @@ const ServerTaskManager: React.FC = () => {
             <Option value="daily">每日</Option>
             <Option value="weekly">每周</Option>
             <Option value="monthly">每月</Option>
+            <Option value="quarterly">每季度</Option>
           </Select>
           {(searchKeyword || statusFilter !== 'all' || repeatTypeFilter !== 'all') && (
             <Button 

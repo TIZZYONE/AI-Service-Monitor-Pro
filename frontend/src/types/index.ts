@@ -54,10 +54,10 @@ export interface Task {
   server_id?: string
   activate_env_command: string
   main_program_command: string
-  repeat_type: 'none' | 'daily' | 'weekly' | 'monthly'
+  repeat_type: 'none' | 'daily' | 'weekly' | 'monthly' | 'quarterly'
   start_time: string
   end_time?: string
-  status: 'pending' | 'running' | 'stopped' | 'error'
+  status: 'pending' | 'running' | 'stopped' | 'completed' | 'failed' | 'error'
   created_at: string
   updated_at: string
 }
@@ -67,7 +67,7 @@ export interface TaskCreate {
   server_id?: string
   activate_env_command: string
   main_program_command: string
-  repeat_type: 'none' | 'daily' | 'weekly' | 'monthly'
+  repeat_type: 'none' | 'daily' | 'weekly' | 'monthly' | 'quarterly'
   start_time: string
   end_time?: string
 }
@@ -76,7 +76,7 @@ export interface TaskUpdate {
   name?: string
   activate_env_command?: string
   main_program_command?: string
-  repeat_type?: 'none' | 'daily' | 'weekly' | 'monthly'
+  repeat_type?: 'none' | 'daily' | 'weekly' | 'monthly' | 'quarterly'
   start_time?: string
   end_time?: string
 }
@@ -104,4 +104,18 @@ export interface ApiResponse<T> {
   data: T
   message?: string
   success: boolean
+}
+
+export interface FileItem {
+  name: string
+  path: string
+  is_directory: boolean
+  size?: number
+  modified_time?: number
+}
+
+export interface DirectoryResponse {
+  current_path: string
+  parent_path?: string
+  items: FileItem[]
 }
