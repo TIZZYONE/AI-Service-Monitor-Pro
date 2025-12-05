@@ -101,17 +101,30 @@ class LogRotator:
         # 生成新日志文件路径
         self.current_log_path = self._generate_log_filename(self.log_date, new_part)
         
-        # 打开新日志文件（追加模式）
-        self.current_log_file = open(self.current_log_path, 'a', encoding='utf-8')
-        self.line_count = 0
-        
-        # 写入轮换标记（如果不是首次创建）
-        if self.log_date and new_part > 1:
-            self.current_log_file.write(
-                f"[日志文件轮换] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - "
-                f"创建新日志文件（部分 {new_part}）\n\n"
-            )
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.current_log_path), exist_ok=True)
+            
+            # 打开新日志文件（追加模式，如果不存在则创建）
+            self.current_log_file = open(self.current_log_path, 'a', encoding='utf-8')
+            self.line_count = 0
+            
+            # 写入启动标记（确保文件被创建）
+            start_marker = f"[任务启动] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 任务ID: {self.task_id}, 任务名称: {self.task_name}\n"
+            self.current_log_file.write(start_marker)
             self.current_log_file.flush()
+            
+            # 写入轮换标记（如果不是首次创建）
+            if self.log_date and new_part > 1:
+                self.current_log_file.write(
+                    f"[日志文件轮换] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - "
+                    f"创建新日志文件（部分 {new_part}）\n\n"
+                )
+                self.current_log_file.flush()
+        except Exception as e:
+            # 如果创建文件失败，输出错误到stderr
+            print(f"ERROR: Failed to create log file {self.current_log_path}: {str(e)}", file=sys.stderr)
+            raise
     
     def write(self, data: str):
         """写入日志数据"""
@@ -157,17 +170,48 @@ class LogRotator:
 
 def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task_name: str):
     """运行命令并实现日志轮转"""
-    rotator = LogRotator(log_dir, task_id, task_name)
+    try:
+        # 确保log_dir是绝对路径
+        if not os.path.isabs(log_dir):
+            # 如果是相对路径，转换为绝对路径
+            log_dir = os.path.abspath(log_dir)
+        
+        # 输出调试信息
+        print(f"DEBUG: log_dir={log_dir}, task_id={task_id}, task_name={task_name}", file=sys.stderr)
+        print(f"DEBUG: command={command}", file=sys.stderr)
+        
+        rotator = LogRotator(log_dir, task_id, task_name)
+        
+        # 输出日志文件路径
+        log_path = rotator.get_current_log_path()
+        print(f"DEBUG: Created log file: {log_path}", file=sys.stderr)
+        print(f"LOG_FILE_PATH:{log_path}", file=sys.stderr)
+        
+    except Exception as e:
+        print(f"ERROR: Failed to initialize log rotator: {str(e)}", file=sys.stderr)
+        import traceback
+        print(traceback.format_exc(), file=sys.stderr)
+        sys.exit(1)
     
     # 启动进程
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        bufsize=1  # 行缓冲
-    )
+    try:
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1  # 行缓冲
+        )
+    except Exception as e:
+        # 如果进程启动失败，记录错误到日志文件
+        try:
+            rotator.write(f"\n[错误] 进程启动失败: {str(e)}\n")
+            rotator.close()
+        except:
+            pass
+        print(f"ERROR: Failed to start process: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     
     def signal_handler(signum, frame):
         """信号处理"""
@@ -208,6 +252,12 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
         # 等待进程结束
         exit_code = process.wait()
         
+        # 写入结束标记
+        try:
+            rotator.write(f"\n[任务结束] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 退出码: {exit_code}\n")
+        except:
+            pass
+        
         # 关闭日志文件
         rotator.close()
         
@@ -217,12 +267,21 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
         sys.exit(exit_code)
         
     except Exception as e:
-        rotator.close()
+        # 记录错误到日志文件
+        try:
+            rotator.write(f"\n[异常] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {str(e)}\n")
+            rotator.close()
+        except:
+            pass
+        
         try:
             process.kill()
         except:
             pass
+        
         print(f"Error: {str(e)}", file=sys.stderr)
+        import traceback
+        print(traceback.format_exc(), file=sys.stderr)
         sys.exit(1)
 
 

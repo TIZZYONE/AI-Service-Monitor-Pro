@@ -375,14 +375,47 @@ class TaskScheduler:
                     stdout=subprocess.PIPE,  # 包装脚本的输出（包含日志文件路径）
                     stderr=subprocess.PIPE,   # 包装脚本的错误输出
                     cwd=None,
-                    env=env
+                    env=env,
+                    text=True,  # 使用文本模式，便于读取
+                    encoding='utf-8',
+                    errors='replace'  # 遇到编码错误时替换而不是失败
                 )
+                
+                # 启动后台线程读取stderr，捕获日志文件路径和错误信息
+                import threading
+                def read_stderr():
+                    try:
+                        # 读取stderr输出（Windows和Linux都支持文本模式）
+                        for line in iter(process.stderr.readline, ''):
+                            if not line:
+                                break
+                            line_str = line.strip()
+                            if line_str:
+                                logger.info(f"任务 {task_id} stderr: {line_str}")
+                                # 检查是否是日志文件路径
+                                if 'LOG_FILE_PATH:' in line_str:
+                                    actual_log_path = line_str.split('LOG_FILE_PATH:')[-1].strip()
+                                    if actual_log_path:
+                                        logger.info(f"任务 {task_id} 实际日志路径: {actual_log_path}")
+                                        # 更新日志文件路径（如果不同）
+                                        if actual_log_path != log_file_path:
+                                            logger.warning(f"任务 {task_id} 实际日志路径与预期不同: 预期={log_file_path}, 实际={actual_log_path}")
+                                            self.task_log_files[task_id] = actual_log_path
+                                # 检查错误信息
+                                elif 'ERROR:' in line_str or 'Error:' in line_str:
+                                    logger.error(f"任务 {task_id} 错误: {line_str}")
+                    except Exception as e:
+                        logger.error(f"读取任务 {task_id} stderr 失败: {str(e)}")
+                
+                stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+                stderr_thread.start()
                 
                 # 保存进程信息
                 self.running_processes[task_id] = process
                 await service.update_task_status(task_id, TaskStatus.RUNNING, process.pid)
                 
                 logger.info(f"任务 {task.name} (ID: {task_id}) 已启动，PID: {process.pid}")
+                logger.info(f"任务 {task_id} 预期日志文件路径: {log_file_path}")
                 
             except Exception as e:
                 logger.error(f"启动任务 {task_id} 失败: {str(e)}")
