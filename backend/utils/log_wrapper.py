@@ -94,9 +94,38 @@ class LogRotator:
             # 同一天，但需要拆分（行数超限）
             new_part = self._get_current_part_number(current_date)
         else:
-            # 首次创建
+            # 首次创建：检查是否已有今天创建的匹配日志文件（可能由scheduler预创建）
             self.log_date = current_date
             new_part = 1
+            
+            # 查找今天创建的、匹配task_id和task_name的日志文件
+            safe_task_name = "".join(c for c in self.task_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            safe_task_name = safe_task_name.replace(' ', '_')
+            date_str = current_date.strftime("%Y%m%d")
+            pattern = f"task_{self.task_id}_{safe_task_name}_{date_str}_*.txt"
+            
+            # 查找匹配的日志文件，按修改时间排序，使用最新的
+            matching_files = list(self.log_dir.glob(pattern))
+            if matching_files:
+                # 按修改时间排序，使用最新的
+                matching_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                existing_file = matching_files[0]
+                # 如果文件存在且是今天创建的，使用它
+                file_date = datetime.fromtimestamp(existing_file.stat().st_mtime).date()
+                if file_date == current_date:
+                    self.current_log_path = str(existing_file)
+                    # 打开现有文件（追加模式）
+                    try:
+                        self.current_log_file = open(self.current_log_path, 'a', encoding='utf-8')
+                        # 统计已有行数
+                        self.line_count = sum(1 for _ in open(self.current_log_path, 'r', encoding='utf-8'))
+                        # 写入标记，表示log_wrapper已接管
+                        self.current_log_file.write(f"\n[日志包装器接管] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - log_wrapper已接管日志记录\n")
+                        self.current_log_file.flush()
+                        return
+                    except Exception as e:
+                        # 如果打开失败，继续创建新文件
+                        print(f"WARNING: Failed to reuse existing log file {existing_file}: {str(e)}", file=sys.stderr)
         
         # 生成新日志文件路径
         self.current_log_path = self._generate_log_filename(self.log_date, new_part)
@@ -290,10 +319,24 @@ if __name__ == "__main__":
         print("Usage: log_wrapper.py <command> <log_dir> <task_id> <task_name>", file=sys.stderr)
         sys.exit(1)
     
-    command = sys.argv[1]
-    log_dir = sys.argv[2]
-    task_id = int(sys.argv[3])
-    task_name = sys.argv[4]
-    
-    run_command_with_log_rotation(command, log_dir, task_id, task_name)
+    try:
+        command = sys.argv[1]
+        log_dir = sys.argv[2]
+        task_id = int(sys.argv[3])
+        task_name = sys.argv[4]
+        
+        # 输出启动信息
+        print(f"DEBUG: log_wrapper.py started", file=sys.stderr)
+        print(f"DEBUG: command={command}", file=sys.stderr)
+        print(f"DEBUG: log_dir={log_dir}", file=sys.stderr)
+        print(f"DEBUG: task_id={task_id}", file=sys.stderr)
+        print(f"DEBUG: task_name={task_name}", file=sys.stderr)
+        print(f"DEBUG: current_dir={os.getcwd()}", file=sys.stderr)
+        
+        run_command_with_log_rotation(command, log_dir, task_id, task_name)
+    except Exception as e:
+        print(f"FATAL ERROR: {str(e)}", file=sys.stderr)
+        import traceback
+        print(traceback.format_exc(), file=sys.stderr)
+        sys.exit(1)
 

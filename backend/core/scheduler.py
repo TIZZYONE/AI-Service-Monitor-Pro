@@ -323,6 +323,23 @@ class TaskScheduler:
                 log_file_path = log_service.generate_log_file_path(task_id, task.name)
                 logger.info(f"任务 {task_id} 日志文件路径: {log_file_path}")
                 
+                # 预创建日志文件（空文件），确保文件存在
+                try:
+                    # 确保日志目录存在
+                    log_dir = os.path.dirname(log_file_path)
+                    os.makedirs(log_dir, exist_ok=True)
+                    
+                    # 创建日志文件（如果不存在）
+                    if not os.path.exists(log_file_path):
+                        with open(log_file_path, 'w', encoding='utf-8') as f:
+                            f.write(f"[任务启动] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 任务ID: {task_id}, 任务名称: {task.name}\n")
+                        logger.info(f"任务 {task_id} 日志文件已预创建: {log_file_path}")
+                    else:
+                        logger.info(f"任务 {task_id} 日志文件已存在: {log_file_path}")
+                except Exception as e:
+                    logger.error(f"任务 {task_id} 预创建日志文件失败: {str(e)}")
+                    # 不抛出异常，继续执行，让log_wrapper尝试创建
+                
                 log_entry = await log_service.create_log_entry(task_id, log_file_path)
                 self.task_log_entries[task_id] = log_entry.id
                 self.task_log_files[task_id] = log_file_path
@@ -360,6 +377,22 @@ class TaskScheduler:
                 
                 logger.info(f"任务 {task_id} 完整命令: {original_command}")
                 logger.info(f"任务 {task_id} 使用日志包装脚本启动")
+                logger.info(f"任务 {task_id} Python解释器: {python_executable}")
+                logger.info(f"任务 {task_id} 包装脚本路径: {wrapper_script}")
+                logger.info(f"任务 {task_id} 日志目录: {log_dir}")
+                logger.info(f"任务 {task_id} 包装命令: {wrapper_command}")
+                
+                # 验证日志目录是否存在
+                if not os.path.exists(log_dir):
+                    logger.warning(f"任务 {task_id} 日志目录不存在，尝试创建: {log_dir}")
+                    try:
+                        os.makedirs(log_dir, exist_ok=True)
+                        logger.info(f"任务 {task_id} 日志目录创建成功")
+                    except Exception as e:
+                        logger.error(f"任务 {task_id} 日志目录创建失败: {str(e)}")
+                        raise
+                else:
+                    logger.info(f"任务 {task_id} 日志目录已存在: {log_dir}")
                 
                 # 启动进程
                 logger.info(f"正在启动任务 {task_id} 的进程...")
@@ -383,6 +416,8 @@ class TaskScheduler:
                 
                 # 启动后台线程读取stderr，捕获日志文件路径和错误信息
                 import threading
+                stderr_lines = []
+                
                 def read_stderr():
                     try:
                         # 读取stderr输出（Windows和Linux都支持文本模式）
@@ -391,6 +426,7 @@ class TaskScheduler:
                                 break
                             line_str = line.strip()
                             if line_str:
+                                stderr_lines.append(line_str)
                                 logger.info(f"任务 {task_id} stderr: {line_str}")
                                 # 检查是否是日志文件路径
                                 if 'LOG_FILE_PATH:' in line_str:
@@ -406,9 +442,22 @@ class TaskScheduler:
                                     logger.error(f"任务 {task_id} 错误: {line_str}")
                     except Exception as e:
                         logger.error(f"读取任务 {task_id} stderr 失败: {str(e)}")
+                        import traceback
+                        logger.error(traceback.format_exc())
                 
                 stderr_thread = threading.Thread(target=read_stderr, daemon=True)
                 stderr_thread.start()
+                
+                # 等待一小段时间，让log_wrapper初始化并创建日志文件
+                import asyncio
+                await asyncio.sleep(0.5)
+                
+                # 检查日志文件是否已创建
+                if os.path.exists(log_file_path):
+                    logger.info(f"任务 {task_id} 日志文件已创建: {log_file_path}")
+                else:
+                    logger.warning(f"任务 {task_id} 日志文件尚未创建: {log_file_path}")
+                    logger.warning(f"任务 {task_id} stderr输出: {stderr_lines}")
                 
                 # 保存进程信息
                 self.running_processes[task_id] = process
