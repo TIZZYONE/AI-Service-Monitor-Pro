@@ -367,119 +367,19 @@ class TaskScheduler:
                 if 'conda activate' in task.activate_env_command:
                     # Windows上使用cmd而不是PowerShell来执行conda命令，避免ANSI转义码问题
                     if system == "windows":
-                        # 在Windows cmd中，conda activate需要特殊处理
-                        # 提取环境名称和其他命令
-                        env_name = None
-                        other_commands = []
+                        # 在Windows cmd中，直接使用call conda activate，这是最简单可靠的方式
+                        # 构建完整命令：激活命令 && 主程序命令
+                        full_command = f"{task.activate_env_command} && {task.main_program_command}"
+                        # 使用call来执行conda activate（在cmd中必须使用call）
+                        # 如果命令中已经有call，就不需要再加
+                        if not full_command.strip().startswith('call '):
+                            # 检查activate_env_command是否包含call
+                            if 'call ' not in task.activate_env_command:
+                                # 替换conda activate为call conda activate
+                                full_command = full_command.replace('conda activate', 'call conda activate', 1)
                         
-                        # 解析activate_env_command
-                        if '&&' in task.activate_env_command:
-                            parts = task.activate_env_command.split('&&')
-                            for part in parts:
-                                part = part.strip()
-                                if 'conda activate' in part:
-                                    # 提取环境名称
-                                    env_name = part.replace('conda activate', '').strip()
-                                elif part:
-                                    other_commands.append(part)
-                        else:
-                            # 只有conda activate
-                            env_name = task.activate_env_command.replace('conda activate', '').strip()
-                        
-                        if not env_name:
-                            # 如果无法提取环境名称，回退到原始命令
-                            full_command = f"{task.activate_env_command} && {task.main_program_command}"
-                            original_command = f'cmd /c "{full_command}"'
-                        else:
-                            # 查找conda可执行文件
-                            conda_exe = os.environ.get('CONDA_EXE', '')
-                            conda_found = False
-                            
-                            # 首先检查CONDA_EXE
-                            if conda_exe and os.path.exists(conda_exe):
-                                conda_found = True
-                            else:
-                                # 如果CONDA_EXE不存在，尝试查找conda
-                                conda_base = os.environ.get('CONDA_BASE', '')
-                                if conda_base and os.path.exists(conda_base):
-                                    conda_exe = os.path.join(conda_base, 'Scripts', 'conda.exe')
-                                    if os.path.exists(conda_exe):
-                                        conda_found = True
-                                    else:
-                                        # 尝试conda.bat
-                                        conda_bat = os.path.join(conda_base, 'Scripts', 'conda.bat')
-                                        if os.path.exists(conda_bat):
-                                            conda_exe = conda_bat
-                                            conda_found = True
-                            
-                            # 如果还是找不到，尝试系统PATH中的conda
-                            if not conda_found:
-                                import shutil
-                                conda_path = shutil.which('conda')
-                                if conda_path:
-                                    conda_exe = conda_path
-                                    conda_found = True
-                                else:
-                                    conda_exe = 'conda'  # 最后回退，让系统尝试
-                            
-                            # 记录conda路径信息
-                            logger.info(f"任务 {task_id} 找到conda: {conda_exe}, 存在: {os.path.exists(conda_exe) if os.path.isabs(conda_exe) else '在PATH中'}")
-                            
-                            # 确保conda_exe路径有引号（如果有空格或不是绝对路径）
-                            if os.path.isabs(conda_exe):
-                                # 绝对路径，如果有空格需要引号
-                                if ' ' in conda_exe:
-                                    conda_exe_quoted = f'"{conda_exe}"'
-                                else:
-                                    conda_exe_quoted = conda_exe
-                            else:
-                                # 相对路径（在PATH中），不需要引号
-                                conda_exe_quoted = conda_exe
-                            
-                            # 构建命令
-                            if other_commands:
-                                # 有cd等命令，需要先执行
-                                # 提取工作目录（如果有cd命令）
-                                work_dir = None
-                                remaining_commands = []
-                                for cmd in other_commands:
-                                    if cmd.strip().startswith('cd '):
-                                        work_dir = cmd.replace('cd ', '').strip().strip('"\'')
-                                    else:
-                                        remaining_commands.append(cmd)
-                                
-                                if work_dir:
-                                    # 有cd命令，在指定目录执行
-                                    # 验证路径是否存在（记录警告但不阻止执行）
-                                    if not os.path.exists(work_dir):
-                                        logger.warning(f"任务 {task_id} 工作目录不存在: {work_dir}，将继续执行但可能失败")
-                                    
-                                    # 构建完整命令：cd到目录，然后使用conda run执行
-                                    script_cmd = task.main_program_command
-                                    # 在cmd /c中，如果路径有空格，内层引号需要转义为""
-                                    # 如果路径没有空格，不需要引号
-                                    if ' ' in work_dir:
-                                        # 路径有空格，内层引号需要转义为""
-                                        work_dir_escaped = work_dir.replace('"', '""')
-                                        original_command = f'cmd /c "cd /d "{work_dir_escaped}" && {conda_exe_quoted} run -n {env_name} --no-capture-output {script_cmd}"'
-                                    else:
-                                        # 路径没有空格，直接使用，不需要引号
-                                        # 注意：work_dir已经去除了引号，所以直接使用
-                                        original_command = f'cmd /c "cd /d {work_dir} && {conda_exe_quoted} run -n {env_name} --no-capture-output {script_cmd}"'
-                                elif remaining_commands:
-                                    # 有其他命令但没有cd
-                                    pre_cmd = ' && '.join(remaining_commands)
-                                    full_cmd = f"{pre_cmd} && {task.main_program_command}"
-                                    # conda run会在conda环境中执行，不需要嵌套cmd /c
-                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output {full_cmd}"'
-                                else:
-                                    # 只有conda activate，直接使用conda run
-                                    # conda run会在conda环境中执行，不需要嵌套cmd /c
-                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output {task.main_program_command}"'
-                            else:
-                                # 只有conda activate，直接使用conda run
-                                # conda run会在conda环境中执行，不需要嵌套cmd /c
-                                original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output {task.main_program_command}"'
+                        # 使用cmd /c执行
+                        original_command = f'cmd /c "{full_command}"'
                     else:
                         # Linux/Mac上使用bash
                         conda_init_command = self._get_conda_init_command()
