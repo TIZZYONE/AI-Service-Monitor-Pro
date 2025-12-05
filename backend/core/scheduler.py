@@ -85,39 +85,6 @@ class TaskScheduler:
             "message": f"成功停止 {success_count} 个任务" + (f"，{fail_count} 个失败" if fail_count > 0 else "")
         }
     
-    def _get_conda_init_command(self) -> str:
-        """获取conda初始化命令"""
-        import platform
-        
-        system = platform.system().lower()
-        
-        if system == "windows":
-            # Windows上使用cmd而不是PowerShell，避免ANSI转义码问题
-            # 或者使用conda run直接运行，这是更可靠的方式
-            # 但为了兼容性，我们使用cmd的方式
-            conda_exe = os.environ.get('CONDA_EXE', 'conda')
-            if conda_exe and os.path.exists(conda_exe):
-                # 如果找到conda.exe，使用其所在目录的Scripts\activate.bat
-                conda_base = os.path.dirname(conda_exe)
-                activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
-                if os.path.exists(activate_bat):
-                    # 返回空字符串，因为activate命令会直接使用activate.bat
-                    return ''
-            # 如果找不到，返回空字符串，让用户自己配置activate_env_command
-            return ''
-        elif system in ["linux", "darwin"]:  # Linux或macOS
-            # Bash环境
-            conda_base = os.environ.get('CONDA_EXE', 'conda')
-            if conda_base and conda_base != 'conda':
-                conda_base_dir = os.path.dirname(os.path.dirname(conda_base))
-                conda_sh = os.path.join(conda_base_dir, 'etc', 'profile.d', 'conda.sh')
-                if os.path.exists(conda_sh):
-                    return f'source "{conda_sh}"'
-            return 'eval "$(conda shell.bash hook)"'
-        else:
-            # 默认尝试直接使用conda命令
-            return 'eval "$(conda shell.bash hook)"'
-    
     async def _load_pending_tasks(self):
         """加载待执行的任务"""
         async with AsyncSessionLocal() as db:
@@ -359,97 +326,14 @@ class TaskScheduler:
                 self.task_log_files[task_id] = log_file_path
                 logger.info(f"任务 {task_id} 日志条目已创建，ID: {log_entry.id}")
                 
-                # 构建完整的命令，添加conda初始化
-                # 检测是否需要conda环境激活
-                import platform
-                system = platform.system().lower()
-                
-                if 'conda activate' in task.activate_env_command:
-                    # Windows上使用cmd而不是PowerShell来执行conda命令，避免ANSI转义码问题
-                    if system == "windows":
-                        # 在Windows cmd中，conda activate需要先初始化conda
-                        # 查找conda的activate.bat脚本
-                        conda_base = os.environ.get('CONDA_BASE', '')
-                        activate_bat = None
-                        
-                        if conda_base and os.path.exists(conda_base):
-                            # 尝试找到activate.bat
-                            activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
-                            if not os.path.exists(activate_bat):
-                                # 尝试condabin目录
-                                activate_bat = os.path.join(conda_base, 'condabin', 'activate.bat')
-                                if not os.path.exists(activate_bat):
-                                    activate_bat = None
-                        
-                        # 解析激活命令
-                        activate_cmd = task.activate_env_command.strip()
-                        
-                        # 如果激活命令中包含分隔符，需要分开处理
-                        separator = None
-                        if ' && ' in activate_cmd:
-                            separator = ' && '
-                            parts = activate_cmd.split(' && ', 1)
-                        elif ' ; ' in activate_cmd:
-                            separator = ' ; '
-                            parts = activate_cmd.split(' ; ', 1)
-                        elif '&&' in activate_cmd and ' && ' not in activate_cmd:
-                            separator = '&&'
-                            parts = activate_cmd.split('&&', 1)
-                        elif ';' in activate_cmd and ' ; ' not in activate_cmd:
-                            separator = ';'
-                            parts = activate_cmd.split(';', 1)
-                        
-                        # 提取环境名称
-                        env_name = None
-                        other_commands = []
-                        
-                        if separator and len(parts) > 1:
-                            conda_part = parts[0].strip()
-                            other_part = parts[1].strip()
-                            
-                            # 从conda_part中提取环境名称
-                            if 'conda activate' in conda_part:
-                                env_name = conda_part.replace('conda activate', '').strip()
-                            other_commands.append(other_part)
-                        else:
-                            # 只有conda activate
-                            if 'conda activate' in activate_cmd:
-                                env_name = activate_cmd.replace('conda activate', '').strip()
-                        
-                        # 构建命令
-                        if activate_bat and env_name:
-                            # 使用activate.bat直接激活环境（最可靠的方式）
-                            # 在cmd /c中，如果路径有空格，内层引号需要转义为""
-                            # 但更简单的方式是：不使用内层引号，直接使用路径（cmd会自动处理）
-                            # 或者使用短路径名，但最简单的是不使用引号（如果路径没有特殊字符）
-                            # 实际上，在cmd /c "..."中，路径可以直接使用，不需要引号
-                            activate_cmd_part = f'call {activate_bat} {env_name}'
-                        else:
-                            # 回退到使用conda activate
-                            activate_cmd_part = activate_cmd
-                            if 'call ' not in activate_cmd_part:
-                                activate_cmd_part = activate_cmd_part.replace('conda activate', 'call conda activate', 1)
-                        
-                        # 构建完整命令
-                        if other_commands:
-                            # 有其他命令（如cd）
-                            other_cmd = ' && '.join(other_commands)
-                            full_command = f"{activate_cmd_part} && {other_cmd} && {task.main_program_command}"
-                        else:
-                            # 只有conda activate
-                            full_command = f"{activate_cmd_part} && {task.main_program_command}"
-                        
-                        # 使用cmd /c执行
-                        original_command = f'cmd /c "{full_command}"'
-                    else:
-                        # Linux/Mac上使用bash
-                        conda_init_command = self._get_conda_init_command()
-                        if conda_init_command:
-                            original_command = f"{conda_init_command} && {task.activate_env_command} && {task.main_program_command}"
-                        else:
-                            original_command = f"{task.activate_env_command} && {task.main_program_command}"
+                # 构建完整的命令 - 简化逻辑，直接组合用户提供的命令
+                # 简单组合激活命令和主程序命令
+                if task.activate_env_command and task.activate_env_command.strip():
+                    # 如果有激活命令，用 ; 连接主程序命令（Windows中更通用，支持cmd和PowerShell）
+                    original_command = f"{task.activate_env_command.strip()} ; {task.main_program_command.strip()}"
                 else:
-                    original_command = f"{task.activate_env_command} && {task.main_program_command}"
+                    # 没有激活命令，直接使用主程序命令
+                    original_command = task.main_program_command.strip()
                 
                 # 使用日志包装脚本启动任务
                 # 获取包装脚本路径
