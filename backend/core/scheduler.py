@@ -423,11 +423,22 @@ class TaskScheduler:
                                 
                                 if work_dir:
                                     # 有cd命令，在指定目录执行
+                                    # 验证路径是否存在
+                                    if not os.path.exists(work_dir):
+                                        raise FileNotFoundError(f"工作目录不存在: {work_dir}")
+                                    
                                     # 构建完整命令：cd到目录，然后使用conda run执行
                                     script_cmd = task.main_program_command
-                                    # 简化：直接使用conda run，它会继承当前工作目录
-                                    # 但我们需要先cd，所以使用cmd /c来执行
-                                    original_command = f'cmd /c "cd /d "{work_dir}" && {conda_exe_quoted} run -n {env_name} --no-capture-output {script_cmd}"'
+                                    # 在cmd /c中，如果路径有空格，内层引号需要转义为""
+                                    # 如果路径没有空格，不需要引号
+                                    if ' ' in work_dir:
+                                        # 路径有空格，内层引号需要转义为""
+                                        work_dir_escaped = work_dir.replace('"', '""')
+                                        original_command = f'cmd /c "cd /d "{work_dir_escaped}" && {conda_exe_quoted} run -n {env_name} --no-capture-output {script_cmd}"'
+                                    else:
+                                        # 路径没有空格，直接使用，不需要引号
+                                        # 注意：work_dir已经去除了引号，所以直接使用
+                                        original_command = f'cmd /c "cd /d {work_dir} && {conda_exe_quoted} run -n {env_name} --no-capture-output {script_cmd}"'
                                 elif remaining_commands:
                                     # 有其他命令但没有cd
                                     pre_cmd = ' && '.join(remaining_commands)
