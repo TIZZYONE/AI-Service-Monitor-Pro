@@ -319,8 +319,11 @@ def _build_conda_init_command(command: str):
             activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
             print(f"DEBUG: Trying activate.bat at: {activate_bat}", file=sys.stderr)
             if os.path.exists(activate_bat):
-                init_prefix = f'@echo off && chcp 65001 >nul && call "{activate_bat}" base && '
-                wrapped_command = f'{init_prefix}{command}'
+                # 路径不需要引号（已验证可用），使用 && 连接确保命令顺序执行
+                # 将用户命令中的 & 替换为 &&，确保命令顺序执行
+                command_fixed = command.replace(' & ', ' && ').replace(' &', ' &&')
+                init_prefix = f'@echo off && chcp 65001 >nul && call {activate_bat} base && '
+                wrapped_command = f'{init_prefix}{command_fixed}'
                 print(f"DEBUG: Wrapped command with activate.bat: {wrapped_command}", file=sys.stderr)
                 return wrapped_command
             
