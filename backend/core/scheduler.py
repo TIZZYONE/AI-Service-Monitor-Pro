@@ -92,13 +92,27 @@ class TaskScheduler:
         system = platform.system().lower()
         
         if system == "windows":
-            # Windows PowerShell环境
-            return 'powershell -Command "& { conda shell.powershell hook | Out-String | Invoke-Expression }"'
+            # Windows上使用cmd而不是PowerShell，避免ANSI转义码问题
+            # 或者使用conda run直接运行，这是更可靠的方式
+            # 但为了兼容性，我们使用cmd的方式
+            conda_exe = os.environ.get('CONDA_EXE', 'conda')
+            if conda_exe and os.path.exists(conda_exe):
+                # 如果找到conda.exe，使用其所在目录的Scripts\activate.bat
+                conda_base = os.path.dirname(conda_exe)
+                activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
+                if os.path.exists(activate_bat):
+                    # 返回空字符串，因为activate命令会直接使用activate.bat
+                    return ''
+            # 如果找不到，返回空字符串，让用户自己配置activate_env_command
+            return ''
         elif system in ["linux", "darwin"]:  # Linux或macOS
             # Bash环境
-            # conda_base = os.environ.get('CONDA_EXE', 'conda')
-            # conda_base_dir = os.path.dirname(os.path.dirname(conda_base)) if conda_base != 'conda' else '/opt/conda'
-            # return f'source {conda_base_dir}/etc/profile.d/conda.sh'
+            conda_base = os.environ.get('CONDA_EXE', 'conda')
+            if conda_base and conda_base != 'conda':
+                conda_base_dir = os.path.dirname(os.path.dirname(conda_base))
+                conda_sh = os.path.join(conda_base_dir, 'etc', 'profile.d', 'conda.sh')
+                if os.path.exists(conda_sh):
+                    return f'source "{conda_sh}"'
             return 'eval "$(conda shell.bash hook)"'
         else:
             # 默认尝试直接使用conda命令
@@ -347,10 +361,24 @@ class TaskScheduler:
                 
                 # 构建完整的命令，添加conda初始化
                 # 检测是否需要conda环境激活
+                import platform
+                system = platform.system().lower()
+                
                 if 'conda activate' in task.activate_env_command:
-                    # 为conda环境添加初始化命令
-                    conda_init_command = self._get_conda_init_command()
-                    original_command = f"{conda_init_command} && {task.activate_env_command} && {task.main_program_command}"
+                    # Windows上使用cmd而不是PowerShell来执行conda命令，避免ANSI转义码问题
+                    if system == "windows":
+                        # 在Windows上，使用cmd来执行整个命令链，避免PowerShell的ANSI转义码问题
+                        # 这样可以保持用户命令的完整性（包括cd等命令）
+                        full_command = f"{task.activate_env_command} && {task.main_program_command}"
+                        # 使用cmd /c来执行，确保在cmd环境中运行
+                        original_command = f'cmd /c "{full_command}"'
+                    else:
+                        # Linux/Mac上使用bash
+                        conda_init_command = self._get_conda_init_command()
+                        if conda_init_command:
+                            original_command = f"{conda_init_command} && {task.activate_env_command} && {task.main_program_command}"
+                        else:
+                            original_command = f"{task.activate_env_command} && {task.main_program_command}"
                 else:
                     original_command = f"{task.activate_env_command} && {task.main_program_command}"
                 
