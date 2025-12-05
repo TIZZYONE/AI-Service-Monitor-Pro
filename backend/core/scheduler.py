@@ -327,10 +327,24 @@ class TaskScheduler:
                 logger.info(f"任务 {task_id} 日志条目已创建，ID: {log_entry.id}")
                 
                 # 构建完整的命令 - 简化逻辑，直接组合用户提供的命令
+                import platform
+                import re
+                system = platform.system().lower()
+                
                 # 简单组合激活命令和主程序命令
                 if task.activate_env_command and task.activate_env_command.strip():
-                    # 如果有激活命令，用 ; 连接主程序命令（Windows中更通用，支持cmd和PowerShell）
-                    original_command = f"{task.activate_env_command.strip()} ; {task.main_program_command.strip()}"
+                    activate_cmd = task.activate_env_command.strip()
+                    main_cmd = task.main_program_command.strip()
+                    
+                    if system == 'windows':
+                        # Windows cmd 中使用 & 连接命令
+                        # 如果激活命令中包含分号（PowerShell格式），需要转换为 cmd 格式
+                        # 将命令间的分号替换为 &，但保留路径等上下文中的分号
+                        # 简单处理：将 " ; " 替换为 " & "，将单独的 ";" 也替换为 " & "
+                        activate_cmd = re.sub(r'\s*;\s*', ' & ', activate_cmd)
+                        original_command = f"{activate_cmd} & {main_cmd}"
+                    else:
+                        original_command = f"{activate_cmd} ; {main_cmd}"
                 else:
                     # 没有激活命令，直接使用主程序命令
                     original_command = task.main_program_command.strip()

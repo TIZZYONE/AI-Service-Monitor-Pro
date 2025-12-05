@@ -224,14 +224,30 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
     
     # 启动进程
     try:
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-            bufsize=1  # 行缓冲
-        )
+        import platform
+        if platform.system().lower() == 'windows':
+            # Windows 上使用 cmd /c 执行命令，确保 conda activate 能正常工作
+            # 使用 shell=True，但通过环境变量 COMSPEC 明确使用 cmd.exe
+            # 命令需要用引号包裹，防止被拆分
+            actual_command = f'cmd /c "{command}"'
+            process = subprocess.Popen(
+                actual_command,
+                shell=True,  # 使用 shell，但会通过 COMSPEC 使用 cmd.exe
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1  # 行缓冲
+            )
+        else:
+            # Linux/Mac 使用 shell=True 执行
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1  # 行缓冲
+            )
         
         # 写入启动信息到日志文件
         try:
