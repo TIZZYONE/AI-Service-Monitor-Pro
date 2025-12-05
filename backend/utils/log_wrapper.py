@@ -197,6 +197,89 @@ class LogRotator:
         return self.current_log_path
 
 
+def _find_conda_base():
+    """查找 conda 安装路径"""
+    import platform
+    
+    # 方式1: 从环境变量获取
+    conda_base = os.environ.get('CONDA_BASE', '')
+    if conda_base and os.path.exists(conda_base):
+        return conda_base
+    
+    # 方式2: 从 CONDA_EXE 获取
+    conda_exe = os.environ.get('CONDA_EXE', '')
+    if conda_exe and os.path.exists(conda_exe):
+        # conda.exe 通常在 Scripts 目录下，base 是上一级目录
+        return os.path.dirname(os.path.dirname(conda_exe))
+    
+    # 方式3: 尝试从 PATH 中查找
+    if platform.system().lower() == 'windows':
+        try:
+            result = subprocess.run(['where', 'conda'], capture_output=True, text=True, timeout=2)
+            if result.returncode == 0 and result.stdout.strip():
+                conda_path = result.stdout.strip().split('\n')[0]
+                if os.path.exists(conda_path):
+                    # conda.exe 在 Scripts 目录下
+                    return os.path.dirname(os.path.dirname(conda_path))
+        except:
+            pass
+    
+    return None
+
+
+def _build_conda_init_command(command: str):
+    """构建包含 conda 初始化的完整命令"""
+    import platform
+    import re
+    
+    # 检查命令中是否包含 conda activate
+    has_conda_activate = 'conda activate' in command.lower()
+    
+    if not has_conda_activate:
+        # 不需要 conda，直接返回原命令
+        return command
+    
+    system = platform.system().lower()
+    
+    if system == 'windows':
+        # Windows: 需要初始化 conda 环境
+        conda_base = _find_conda_base()
+        
+        if conda_base:
+            # 找到 conda 的 Scripts\activate.bat
+            activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
+            if not os.path.exists(activate_bat):
+                # 尝试 condabin 目录
+                activate_bat = os.path.join(conda_base, 'condabin', 'activate.bat')
+            
+            if os.path.exists(activate_bat):
+                # 构建初始化命令
+                # 在 Windows cmd 中，需要先初始化 conda，然后才能使用 activate
+                # 使用 @call 来确保批处理脚本的环境变量修改生效
+                
+                # 解析用户命令，提取 conda activate 部分和其他命令
+                # 简单处理：如果命令中包含 "conda activate"，需要包装
+                
+                # 方法：将整个命令包装在 cmd 中，先初始化 conda，然后执行
+                # 使用 chcp 65001 确保 UTF-8 编码，避免中文路径问题
+                init_prefix = f'@echo off && chcp 65001 >nul && call "{activate_bat}" base && '
+                
+                # 返回包装后的命令
+                return f'{init_prefix}{command}'
+        
+        # 如果找不到 conda，返回原命令（可能会失败，但至少尝试）
+        return command
+    else:
+        # Linux/Mac: 使用 source conda.sh
+        conda_base = _find_conda_base()
+        if conda_base:
+            conda_sh = os.path.join(conda_base, 'etc', 'profile.d', 'conda.sh')
+            if os.path.exists(conda_sh):
+                return f'source "{conda_sh}" && {command}'
+        
+        return command
+
+
 def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task_name: str):
     """运行命令并实现日志轮转"""
     try:
@@ -225,14 +308,18 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
     # 启动进程
     try:
         import platform
+        
+        # 检查命令中是否需要 conda，如果需要则初始化 conda
+        actual_command = _build_conda_init_command(command)
+        print(f"DEBUG: Final command after conda init: {actual_command}", file=sys.stderr)
+        
         if platform.system().lower() == 'windows':
-            # Windows 上使用 cmd /c 执行命令，确保 conda activate 能正常工作
-            # 使用 shell=True，但通过环境变量 COMSPEC 明确使用 cmd.exe
-            # 命令需要用引号包裹，防止被拆分
-            actual_command = f'cmd /c "{command}"'
+            # Windows 上使用 cmd /c 执行命令
+            # 将命令用引号包裹，防止被拆分
+            cmd_line = f'cmd /c "{actual_command}"'
             process = subprocess.Popen(
-                actual_command,
-                shell=True,  # 使用 shell，但会通过 COMSPEC 使用 cmd.exe
+                cmd_line,
+                shell=True,  # 使用 shell
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
@@ -241,7 +328,7 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
         else:
             # Linux/Mac 使用 shell=True 执行
             process = subprocess.Popen(
-                command,
+                actual_command,
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
