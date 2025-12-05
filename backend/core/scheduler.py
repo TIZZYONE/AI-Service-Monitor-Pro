@@ -358,6 +358,8 @@ class TaskScheduler:
                 # 获取包装脚本路径
                 script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 wrapper_script = os.path.join(script_dir, 'utils', 'log_wrapper.py')
+                # 确保使用绝对路径
+                wrapper_script = os.path.abspath(wrapper_script)
                 
                 # 确保包装脚本存在
                 if not os.path.exists(wrapper_script):
@@ -365,22 +367,29 @@ class TaskScheduler:
                     raise FileNotFoundError(f"日志包装脚本不存在: {wrapper_script}")
                 
                 # 构建使用包装脚本的命令
-                # 转义命令中的特殊字符
-                import shlex
-                escaped_command = shlex.quote(original_command)
+                # 直接传递参数，避免Windows shell转义问题
                 log_dir = log_service.log_dir
-                safe_task_name = shlex.quote(task.name)
                 
                 # 使用Python解释器运行包装脚本
                 python_executable = sys.executable
-                wrapper_command = f'{python_executable} "{wrapper_script}" {escaped_command} "{log_dir}" {task_id} {safe_task_name}'
+                
+                # 构建参数列表（不使用shell=True，直接传递参数）
+                # 这样original_command会作为单个字符串参数传递，避免转义问题
+                wrapper_args = [
+                    python_executable,
+                    wrapper_script,
+                    original_command,  # 原始命令作为单个参数传递
+                    log_dir,
+                    str(task_id),
+                    task.name  # 任务名称
+                ]
                 
                 logger.info(f"任务 {task_id} 完整命令: {original_command}")
                 logger.info(f"任务 {task_id} 使用日志包装脚本启动")
                 logger.info(f"任务 {task_id} Python解释器: {python_executable}")
                 logger.info(f"任务 {task_id} 包装脚本路径: {wrapper_script}")
                 logger.info(f"任务 {task_id} 日志目录: {log_dir}")
-                logger.info(f"任务 {task_id} 包装命令: {wrapper_command}")
+                logger.info(f"任务 {task_id} 包装参数: {wrapper_args}")
                 
                 # 验证日志目录是否存在
                 if not os.path.exists(log_dir):
@@ -402,9 +411,10 @@ class TaskScheduler:
                 
                 # 使用包装脚本启动，输出会被包装脚本处理
                 # 包装脚本会将输出写入日志文件并实现轮转
+                # 直接传递参数列表，避免Windows shell转义问题
                 process = subprocess.Popen(
-                    wrapper_command,
-                    shell=True,
+                    wrapper_args,  # 使用参数列表而不是命令字符串
+                    shell=False,   # 不使用shell，直接执行
                     stdout=subprocess.PIPE,  # 包装脚本的输出（包含日志文件路径）
                     stderr=subprocess.PIPE,   # 包装脚本的错误输出
                     cwd=None,
