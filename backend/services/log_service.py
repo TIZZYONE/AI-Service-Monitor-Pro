@@ -19,7 +19,10 @@ class LogService:
     
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.log_dir = "logs"
+        # 使用绝对路径，基于backend目录
+        # 获取backend目录的绝对路径
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.log_dir = os.path.join(base_dir, "logs")
         # 确保日志目录存在
         os.makedirs(self.log_dir, exist_ok=True)
     

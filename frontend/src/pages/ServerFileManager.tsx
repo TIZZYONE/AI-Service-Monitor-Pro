@@ -32,6 +32,22 @@ const { TextArea } = Input
 
 const { Title } = Typography
 
+// 文本文件扩展名列表
+const TEXT_FILE_EXTENSIONS = [
+  'txt', 'md', 'json', 'xml', 'html', 'htm', 'css', 'js', 'ts', 'jsx', 'tsx',
+  'py', 'java', 'cpp', 'c', 'h', 'hpp', 'cs', 'go', 'rs', 'php', 'rb', 'swift',
+  'sh', 'bat', 'ps1', 'yml', 'yaml', 'ini', 'cfg', 'conf', 'config', 'log',
+  'sql', 'vue', 'svelte', 'dart', 'kt', 'scala', 'r', 'm', 'pl', 'lua',
+  'properties', 'env', 'gitignore', 'dockerfile', 'makefile', 'cmake'
+]
+
+// 检查文件是否为文本文件
+const isTextFile = (fileName: string): boolean => {
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  if (!ext) return false
+  return TEXT_FILE_EXTENSIONS.includes(ext)
+}
+
 interface TreeNode {
   title: React.ReactNode
   key: string
@@ -72,6 +88,12 @@ const ServerFileManager: React.FC = () => {
   const handleEdit = useCallback(async (filePath: string, fileName: string) => {
     if (!serverId) return
 
+    // 再次检查是否为文本文件
+    if (!isTextFile(fileName)) {
+      message.warning('只能编辑文本文件')
+      return
+    }
+
     setLoading(true)
     try {
       const response = await multiServerApi.getFileContent(serverId, filePath)
@@ -79,7 +101,19 @@ const ServerFileManager: React.FC = () => {
       setFileContent(response.content)
       setEditDrawerVisible(true)
     } catch (error: any) {
-      message.error(error.message || '读取文件失败')
+      // 尝试从错误响应中提取详细信息
+      let errorMessage = '读取文件失败'
+      if (error.message) {
+        errorMessage = error.message
+      } else if (error.response) {
+        try {
+          const errorData = await error.response.json()
+          errorMessage = errorData.detail || errorData.message || errorMessage
+        } catch {
+          errorMessage = `读取文件失败: ${error.response.status} ${error.response.statusText}`
+        }
+      }
+      message.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -119,13 +153,15 @@ const ServerFileManager: React.FC = () => {
                   onClick={() => handleDownload(item.path)}
                   title="下载"
                 />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<EditOutlined />}
-                  onClick={() => handleEdit(item.path, item.name)}
-                  title="编辑"
-                />
+                {isTextFile(item.name) && (
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => handleEdit(item.path, item.name)}
+                    title="编辑"
+                  />
+                )}
               </Space>
             )}
           </Space>
@@ -234,13 +270,15 @@ const ServerFileManager: React.FC = () => {
                   onClick={() => handleDownload(item.path)}
                   title="下载"
                 />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<EditOutlined />}
-                  onClick={() => handleEdit(item.path, item.name)}
-                  title="编辑"
-                />
+                {isTextFile(item.name) && (
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => handleEdit(item.path, item.name)}
+                    title="编辑"
+                  />
+                )}
               </Space>
             )}
           </Space>

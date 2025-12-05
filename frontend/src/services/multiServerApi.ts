@@ -31,7 +31,21 @@ export class MultiServerApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status} ${response.statusText}`)
+      // 尝试解析错误响应中的详细信息
+      let errorMessage = `请求失败: ${response.status} ${response.statusText}`
+      try {
+        const errorData = await response.json()
+        if (errorData.detail) {
+          errorMessage = errorData.detail
+        } else if (errorData.message) {
+          errorMessage = errorData.message
+        }
+      } catch {
+        // 如果无法解析JSON，使用默认错误信息
+      }
+      const error = new Error(errorMessage)
+      ;(error as any).response = response
+      throw error
     }
 
     return response.json()

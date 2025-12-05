@@ -302,7 +302,7 @@ const RealTimeLogViewer: React.FC<RealTimeLogViewerProps> = ({
               value={selectedLogPath}
               onChange={handleLogSelect}
               loading={loading}
-              dropdownStyle={{ maxWidth: 650 }}
+              styles={{ popup: { root: { maxWidth: 650 } } }}
             >
               {filteredLogs.map((log) => (
                 <Option key={log.log_file_path} value={log.log_file_path}>
