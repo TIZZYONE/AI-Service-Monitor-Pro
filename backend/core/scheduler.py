@@ -367,12 +367,24 @@ class TaskScheduler:
                 if 'conda activate' in task.activate_env_command:
                     # Windows上使用cmd而不是PowerShell来执行conda命令，避免ANSI转义码问题
                     if system == "windows":
-                        # 在Windows cmd中，conda activate是批处理脚本，必须使用call
-                        # 解析激活命令，确保正确处理
+                        # 在Windows cmd中，conda activate需要先初始化conda
+                        # 查找conda的activate.bat脚本
+                        conda_base = os.environ.get('CONDA_BASE', '')
+                        activate_bat = None
+                        
+                        if conda_base and os.path.exists(conda_base):
+                            # 尝试找到activate.bat
+                            activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
+                            if not os.path.exists(activate_bat):
+                                # 尝试condabin目录
+                                activate_bat = os.path.join(conda_base, 'condabin', 'activate.bat')
+                                if not os.path.exists(activate_bat):
+                                    activate_bat = None
+                        
+                        # 解析激活命令
                         activate_cmd = task.activate_env_command.strip()
                         
-                        # 如果激活命令中包含 && 或 ;，需要分开处理
-                        # 例如：conda activate env && cd path 或 conda activate env ; cd path
+                        # 如果激活命令中包含分隔符，需要分开处理
                         separator = None
                         if ' && ' in activate_cmd:
                             separator = ' && '
@@ -381,29 +393,51 @@ class TaskScheduler:
                             separator = ' ; '
                             parts = activate_cmd.split(' ; ', 1)
                         elif '&&' in activate_cmd and ' && ' not in activate_cmd:
-                            # 没有空格的 &&
                             separator = '&&'
                             parts = activate_cmd.split('&&', 1)
                         elif ';' in activate_cmd and ' ; ' not in activate_cmd:
-                            # 没有空格的 ;
                             separator = ';'
                             parts = activate_cmd.split(';', 1)
+                        
+                        # 提取环境名称
+                        env_name = None
+                        other_commands = []
                         
                         if separator and len(parts) > 1:
                             conda_part = parts[0].strip()
                             other_part = parts[1].strip()
                             
-                            # 处理conda activate部分
-                            if 'call ' not in conda_part:
-                                conda_part = conda_part.replace('conda activate', 'call conda activate', 1)
-                            
-                            # 构建完整命令，统一使用 && 连接
-                            full_command = f"{conda_part} && {other_part} && {task.main_program_command}"
+                            # 从conda_part中提取环境名称
+                            if 'conda activate' in conda_part:
+                                env_name = conda_part.replace('conda activate', '').strip()
+                            other_commands.append(other_part)
                         else:
-                            # 激活命令中没有分隔符，直接处理
-                            if 'call ' not in activate_cmd:
-                                activate_cmd = activate_cmd.replace('conda activate', 'call conda activate', 1)
-                            full_command = f"{activate_cmd} && {task.main_program_command}"
+                            # 只有conda activate
+                            if 'conda activate' in activate_cmd:
+                                env_name = activate_cmd.replace('conda activate', '').strip()
+                        
+                        # 构建命令
+                        if activate_bat and env_name:
+                            # 使用activate.bat直接激活环境（最可靠的方式）
+                            # 在cmd /c中，如果路径有空格，内层引号需要转义为""
+                            # 但更简单的方式是：不使用内层引号，直接使用路径（cmd会自动处理）
+                            # 或者使用短路径名，但最简单的是不使用引号（如果路径没有特殊字符）
+                            # 实际上，在cmd /c "..."中，路径可以直接使用，不需要引号
+                            activate_cmd_part = f'call {activate_bat} {env_name}'
+                        else:
+                            # 回退到使用conda activate
+                            activate_cmd_part = activate_cmd
+                            if 'call ' not in activate_cmd_part:
+                                activate_cmd_part = activate_cmd_part.replace('conda activate', 'call conda activate', 1)
+                        
+                        # 构建完整命令
+                        if other_commands:
+                            # 有其他命令（如cd）
+                            other_cmd = ' && '.join(other_commands)
+                            full_command = f"{activate_cmd_part} && {other_cmd} && {task.main_program_command}"
+                        else:
+                            # 只有conda activate
+                            full_command = f"{activate_cmd_part} && {task.main_program_command}"
                         
                         # 使用cmd /c执行
                         original_command = f'cmd /c "{full_command}"'
