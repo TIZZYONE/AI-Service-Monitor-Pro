@@ -367,11 +367,67 @@ class TaskScheduler:
                 if 'conda activate' in task.activate_env_command:
                     # Windows上使用cmd而不是PowerShell来执行conda命令，避免ANSI转义码问题
                     if system == "windows":
-                        # 在Windows上，使用cmd来执行整个命令链，避免PowerShell的ANSI转义码问题
-                        # 这样可以保持用户命令的完整性（包括cd等命令）
-                        full_command = f"{task.activate_env_command} && {task.main_program_command}"
-                        # 使用cmd /c来执行，确保在cmd环境中运行
-                        original_command = f'cmd /c "{full_command}"'
+                        # 在Windows cmd中，conda activate需要特殊处理
+                        # 提取环境名称和其他命令
+                        env_name = None
+                        other_commands = []
+                        
+                        # 解析activate_env_command
+                        if '&&' in task.activate_env_command:
+                            parts = task.activate_env_command.split('&&')
+                            for part in parts:
+                                part = part.strip()
+                                if 'conda activate' in part:
+                                    # 提取环境名称
+                                    env_name = part.replace('conda activate', '').strip()
+                                elif part:
+                                    other_commands.append(part)
+                        else:
+                            # 只有conda activate
+                            env_name = task.activate_env_command.replace('conda activate', '').strip()
+                        
+                        if not env_name:
+                            # 如果无法提取环境名称，回退到原始命令
+                            full_command = f"{task.activate_env_command} && {task.main_program_command}"
+                            original_command = f'cmd /c "{full_command}"'
+                        else:
+                            # 使用conda run（最可靠的方式）
+                            conda_exe = os.environ.get('CONDA_EXE', 'conda')
+                            if not conda_exe or not os.path.exists(conda_exe):
+                                # 如果CONDA_EXE不存在，尝试查找conda
+                                conda_base = os.environ.get('CONDA_BASE', '')
+                                if conda_base and os.path.exists(conda_base):
+                                    conda_exe = os.path.join(conda_base, 'Scripts', 'conda.exe')
+                                    if not os.path.exists(conda_exe):
+                                        conda_exe = 'conda'  # 回退到系统PATH中的conda
+                                else:
+                                    conda_exe = 'conda'
+                            
+                            # 构建命令
+                            if other_commands:
+                                # 有cd等命令，需要先执行
+                                pre_commands = ' && '.join(other_commands)
+                                # 提取工作目录（如果有cd命令）
+                                work_dir = None
+                                for cmd in other_commands:
+                                    if cmd.strip().startswith('cd '):
+                                        work_dir = cmd.replace('cd ', '').strip()
+                                        break
+                                
+                                if work_dir:
+                                    # 使用conda run，并在指定目录执行
+                                    # 构建完整命令：cd到目录，然后使用conda run执行
+                                    script_cmd = task.main_program_command
+                                    # 确保工作目录路径正确（处理引号）
+                                    work_dir_quoted = work_dir if ' ' not in work_dir else f'"{work_dir}"'
+                                    original_command = f'cmd /c "cd /d {work_dir_quoted} && {conda_exe} run -n {env_name} --no-capture-output {script_cmd}"'
+                                else:
+                                    # 没有cd，直接使用conda run执行所有命令
+                                    full_cmd = f"{pre_commands} && {task.main_program_command}"
+                                    original_command = f'"{conda_exe}" run -n {env_name} --no-capture-output cmd /c "{full_cmd}"'
+                            else:
+                                # 只有conda activate，直接使用conda run
+                                original_command = f'"{conda_exe}" run -n {env_name} --no-capture-output cmd /c "{task.main_program_command}"'
                     else:
                         # Linux/Mac上使用bash
                         conda_init_command = self._get_conda_init_command()
