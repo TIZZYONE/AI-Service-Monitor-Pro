@@ -43,8 +43,13 @@ class FileSaveRequest(BaseModel):
 
 
 def get_home_directory() -> str:
-    """获取用户主目录"""
-    return os.path.expanduser("~")
+    """获取基础目录（Windows上返回根目录，其他系统返回用户主目录）"""
+    if platform.system() == "Windows":
+        # Windows上返回根目录（C:\）
+        return os.path.splitdrive(os.path.expanduser("~"))[0] + "\\"
+    else:
+        # Linux/Mac上返回用户主目录
+        return os.path.expanduser("~")
 
 
 def is_safe_path(path: str, base_path: str) -> bool:
@@ -54,8 +59,15 @@ def is_safe_path(path: str, base_path: str) -> bool:
         resolved_path = os.path.realpath(path)
         resolved_base = os.path.realpath(base_path)
         
-        # 检查路径是否在基础路径内
-        return resolved_path.startswith(resolved_base)
+        # 规范化路径（统一使用正斜杠或反斜杠）
+        if platform.system() == "Windows":
+            resolved_path = resolved_path.replace('/', '\\')
+            resolved_base = resolved_base.replace('/', '\\')
+            # Windows上确保路径以基础路径开头（不区分大小写）
+            return resolved_path.lower().startswith(resolved_base.lower())
+        else:
+            # Linux/Mac上检查路径是否在基础路径内
+            return resolved_path.startswith(resolved_base)
     except Exception:
         return False
 
@@ -128,8 +140,17 @@ async def list_directory(
         parent_path = None
         if path != home_dir:
             parent_path_obj = Path(path).parent
-            if is_safe_path(str(parent_path_obj), home_dir):
-                parent_path = str(parent_path_obj)
+            parent_path_str = str(parent_path_obj)
+            # Windows上，如果父目录是根目录（如C:\），允许返回
+            if platform.system() == "Windows":
+                # 检查是否是根目录（如 C:\）
+                if len(parent_path_str) == 3 and parent_path_str[1:3] == ":\\":
+                    parent_path = parent_path_str
+                elif is_safe_path(parent_path_str, home_dir):
+                    parent_path = parent_path_str
+            else:
+                if is_safe_path(parent_path_str, home_dir):
+                    parent_path = parent_path_str
         
         return DirectoryResponse(
             current_path=path,

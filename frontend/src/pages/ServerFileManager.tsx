@@ -197,7 +197,7 @@ const ServerFileManager: React.FC = () => {
     setFileContent('')
   }
 
-  // 初始加载（加载home目录）
+  // 初始加载（加载根目录）
   useEffect(() => {
     loadDirectory()
   }, [loadDirectory])
@@ -299,7 +299,7 @@ const ServerFileManager: React.FC = () => {
     }
   }
 
-  // 返回home目录
+  // 返回根目录
   const handleGoHome = () => {
     loadDirectory()
   }
@@ -318,7 +318,7 @@ const ServerFileManager: React.FC = () => {
             onClick={handleGoHome}
             style={{ padding: 0 }}
           >
-            Home
+            根目录
           </Button>
         )
       }
@@ -386,7 +386,7 @@ const ServerFileManager: React.FC = () => {
               icon={<HomeOutlined />}
               onClick={handleGoHome}
             >
-              返回Home
+              返回根目录
             </Button>
             <Button 
               icon={<ReloadOutlined />}

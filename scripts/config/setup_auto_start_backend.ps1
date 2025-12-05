@@ -1,138 +1,138 @@
-# Windows 后端开机自动启动配置脚本
-# 使用方法: 以管理员身份运行 PowerShell，执行: .\setup_auto_start_backend.ps1
-# 编码: UTF-8
+# Windows Backend Auto-Start Configuration Script
+# Usage: Run PowerShell as Administrator, execute: .\setup_auto_start_backend.ps1
+# Encoding: UTF-8
 
-# 1设置控制台编码为UTF-8
+# Set console encoding to UTF-8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 chcp 65001 | Out-Null
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  AI Service Monitor Pro" -ForegroundColor Green
-Write-Host "  后端开机自动启动配置脚本" -ForegroundColor Green
+Write-Host "  Backend Auto-Start Configuration" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
-# 检查管理员权限
+# Check admin privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "错误: 请以管理员身份运行此脚本" -ForegroundColor Red
-    Write-Host "右键点击 PowerShell，选择'以管理员身份运行'" -ForegroundColor Yellow
+    Write-Host "ERROR: Please run as Administrator" -ForegroundColor Red
+    Write-Host "Right-click PowerShell, select 'Run as Administrator'" -ForegroundColor Yellow
     pause
     exit 1
 }
 
-# 获取脚本所在目录
+# Get script directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $BackendDir = Join-Path $ProjectDir "backend"
 
-# 检查backend目录是否存在
+# Check if backend directory exists
 if (-not (Test-Path $BackendDir)) {
-    Write-Host "错误: 未找到 backend 目录" -ForegroundColor Red
+    Write-Host "ERROR: Backend directory not found" -ForegroundColor Red
     pause
     exit 1
 }
 
-# 检查start_backend.bat是否存在
+# Check if start_backend.bat exists
 $BackendStartScript = Join-Path $ProjectDir "scripts\prod\start_backend.bat"
 if (-not (Test-Path $BackendStartScript)) {
-    Write-Host "错误: 未找到后端启动脚本: $BackendStartScript" -ForegroundColor Red
+    Write-Host "ERROR: Backend start script not found: $BackendStartScript" -ForegroundColor Red
     pause
     exit 1
 }
 
-Write-Host "当前配置信息:" -ForegroundColor Blue
-Write-Host "  项目目录: $ProjectDir" -ForegroundColor Green
-Write-Host "  后端目录: $BackendDir" -ForegroundColor Green
-Write-Host "  后端启动脚本: $BackendStartScript" -ForegroundColor Green
+Write-Host "Configuration:" -ForegroundColor Blue
+Write-Host "  Project: $ProjectDir" -ForegroundColor Green
+Write-Host "  Backend: $BackendDir" -ForegroundColor Green
+Write-Host "  Backend Script: $BackendStartScript" -ForegroundColor Green
 Write-Host ""
 
-# 检查Python是否安装
+# Check Python installation
 try {
     $pythonVersion = python --version 2>&1
-    Write-Host "检测到 Python: $pythonVersion" -ForegroundColor Green
+    Write-Host "Python detected: $pythonVersion" -ForegroundColor Green
 } catch {
-    Write-Host "错误: 未找到 Python，请先安装 Python 3.8+" -ForegroundColor Red
+    Write-Host "ERROR: Python not found, install Python 3.8+" -ForegroundColor Red
     pause
     exit 1
 }
 
 Write-Host ""
 
-# 任务名称
+# Task name
 $TaskName = "AI Service Monitor Pro - Backend"
 
-# 检查任务是否已存在
+# Check if task already exists
 $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($existingTask) {
-    Write-Host "检测到已存在的任务: $TaskName" -ForegroundColor Yellow
-    $response = Read-Host "是否删除现有任务并重新创建? (y/n)"
+    Write-Host "Task exists: $TaskName" -ForegroundColor Yellow
+    $response = Read-Host "Delete and recreate? (y/n)"
     if ($response -eq "y" -or $response -eq "Y") {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-        Write-Host "已删除现有任务" -ForegroundColor Green
+        Write-Host "Existing task deleted" -ForegroundColor Green
     } else {
-        Write-Host "已取消操作" -ForegroundColor Yellow
+        Write-Host "Operation cancelled" -ForegroundColor Yellow
         pause
         exit 0
     }
 }
 
-# 创建任务操作
+# Create task action
 $Action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$BackendStartScript`"" -WorkingDirectory $BackendDir
 
-# 创建任务触发器（开机启动）
+# Create task trigger (startup)
 $Trigger = New-ScheduledTaskTrigger -AtStartup
 
-# 创建任务主体（以最高权限运行，不管用户是否登录）
+# Create task principal (run with highest privileges, regardless of user login)
 $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Highest
 
-# 创建任务设置
+# Create task settings
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
-# 创建任务描述
-$Description = "AI Service Monitor Pro - 后端服务"
+# Create task description
+$Description = "AI Service Monitor Pro - Backend Service"
 
-# 注册任务
-Write-Host "正在创建计划任务..." -ForegroundColor Yellow
+# Register task
+Write-Host "Creating scheduled task..." -ForegroundColor Yellow
 try {
     Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Description $Description | Out-Null
-    Write-Host "任务创建成功!" -ForegroundColor Green
+    Write-Host "Task created successfully!" -ForegroundColor Green
 } catch {
-    Write-Host "错误: 创建任务失败: $_" -ForegroundColor Red
+    Write-Host "ERROR: Failed to create task: $_" -ForegroundColor Red
     pause
     exit 1
 }
 
-# 询问是否立即运行任务
+# Ask to start now
 Write-Host ""
-$response = Read-Host "是否立即启动后端服务? (y/n)"
+$response = Read-Host "Start backend service now? (y/n)"
 if ($response -eq "y" -or $response -eq "Y") {
-    Write-Host "正在启动后端服务..." -ForegroundColor Yellow
+    Write-Host "Starting backend service..." -ForegroundColor Yellow
     Start-ScheduledTask -TaskName $TaskName
     
     Start-Sleep -Seconds 3
     
     $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
     if ($taskInfo.LastTaskResult -eq 0) {
-        Write-Host "后端服务启动成功!" -ForegroundColor Green
+        Write-Host "Backend service started successfully!" -ForegroundColor Green
     } else {
-        Write-Host "后端服务可能启动失败，请检查任务计划程序" -ForegroundColor Yellow
+        Write-Host "Backend service may have failed, check Task Scheduler" -ForegroundColor Yellow
     }
 }
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "  配置完成！" -ForegroundColor Green
+Write-Host "  Configuration Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "常用操作:" -ForegroundColor Blue
-Write-Host "  启动后端: Start-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
-Write-Host "  停止后端: Stop-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
-Write-Host "  查看任务: Get-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
-Write-Host "  删除任务: Unregister-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
+Write-Host "Common Commands:" -ForegroundColor Blue
+Write-Host "  Start backend: Start-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
+Write-Host "  Stop backend: Stop-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
+Write-Host "  View task: Get-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
+Write-Host "  Delete task: Unregister-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
 Write-Host ""
-Write-Host "也可以在任务计划程序中管理此任务" -ForegroundColor Yellow
+Write-Host "You can also manage tasks in Task Scheduler" -ForegroundColor Yellow
 Write-Host ""
 
 pause
