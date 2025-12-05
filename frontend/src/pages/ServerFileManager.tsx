@@ -3,7 +3,6 @@ import { useParams } from 'react-router-dom'
 import { 
   Card, 
   Tree, 
-  Breadcrumb, 
   Spin, 
   message, 
   Empty,
@@ -23,7 +22,9 @@ import {
   ArrowUpOutlined,
   UploadOutlined,
   DownloadOutlined,
-  EditOutlined
+  EditOutlined,
+  EnterOutlined,
+  FolderOpenOutlined
 } from '@ant-design/icons'
 import { multiServerApi } from '../services/multiServerApi'
 import { DirectoryResponse } from '../types'
@@ -71,6 +72,10 @@ const ServerFileManager: React.FC = () => {
   const [fileContent, setFileContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  
+  // 路径输入框相关状态
+  const [pathInputValue, setPathInputValue] = useState('')
+  const [isEditingPath, setIsEditingPath] = useState(false)
 
   // 下载文件
   const handleDownload = useCallback(async (filePath: string) => {
@@ -237,6 +242,35 @@ const ServerFileManager: React.FC = () => {
   useEffect(() => {
     loadDirectory()
   }, [loadDirectory])
+  
+  // 同步路径输入框的值
+  useEffect(() => {
+    if (!isEditingPath) {
+      setPathInputValue(currentPath || '')
+    }
+  }, [currentPath, isEditingPath])
+  
+  // 处理路径输入框的跳转
+  const handlePathNavigate = useCallback(() => {
+    const path = pathInputValue.trim()
+    if (path) {
+      loadDirectory(path)
+    } else {
+      // 如果为空，返回根目录
+      loadDirectory(undefined)
+    }
+    setIsEditingPath(false)
+  }, [pathInputValue, loadDirectory])
+  
+  // 处理路径输入框的键盘事件
+  const handlePathInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handlePathNavigate()
+    } else if (e.key === 'Escape') {
+      setPathInputValue(currentPath || '')
+      setIsEditingPath(false)
+    }
+  }
 
   // 加载子节点（懒加载）
   const onLoadData = useCallback(async (node: any) => {
@@ -338,14 +372,25 @@ const ServerFileManager: React.FC = () => {
   }
 
   // 返回根目录
-  const handleGoHome = () => {
-    loadDirectory()
-  }
+  const handleGoHome = useCallback(() => {
+    // 强制重置状态并加载根目录
+    setCurrentPath('')
+    setParentPath(undefined)
+    setTreeData([])
+    setExpandedKeys([])
+    // 使用 undefined 明确表示加载根目录
+    loadDirectory(undefined)
+  }, [loadDirectory])
 
   // 生成面包屑路径
   const getBreadcrumbItems = () => {
     if (!currentPath) return []
     
+    // 检测路径分隔符（Windows使用反斜杠，Unix使用正斜杠）
+    const isWindowsPath = currentPath.includes('\\')
+    const separator = isWindowsPath ? '\\' : '/'
+    
+    // 分割路径
     const parts = currentPath.split(/[/\\]/).filter(Boolean)
     const items = [
       {
@@ -362,26 +407,38 @@ const ServerFileManager: React.FC = () => {
       }
     ]
 
-    let current = ''
+    // 构建路径片段，每个片段都可以点击
+    let accumulatedPath = ''
     parts.forEach((part, index) => {
-      current = current ? `${current}/${part}` : part
-      if (index === parts.length - 1) {
-        items.push({
-          title: <span>{part}</span>
-        })
+      // 构建当前路径片段
+      if (isWindowsPath) {
+        // Windows路径：第一个部分是盘符（如 C:），需要特殊处理
+        if (index === 0 && part.endsWith(':')) {
+          accumulatedPath = part + separator
+        } else {
+          accumulatedPath = accumulatedPath ? `${accumulatedPath}${separator}${part}` : part
+        }
       } else {
-        items.push({
-          title: (
-            <Button 
-              type="link" 
-              onClick={() => loadDirectory(current)}
-              style={{ padding: 0 }}
-            >
-              {part}
-            </Button>
-          )
-        })
+        // Unix路径：确保有前导斜杠
+        if (index === 0) {
+          accumulatedPath = separator + part
+        } else {
+          accumulatedPath = accumulatedPath + separator + part
+        }
       }
+      
+      // 所有路径片段都可以点击
+      items.push({
+        title: (
+          <Button 
+            type="link" 
+            onClick={() => loadDirectory(accumulatedPath)}
+            style={{ padding: 0 }}
+          >
+            {part}
+          </Button>
+        )
+      })
     })
 
     return items
@@ -436,13 +493,85 @@ const ServerFileManager: React.FC = () => {
           </Space>
         </div>
         
-        {/* 面包屑导航 */}
-        {currentPath && (
-          <Breadcrumb 
-            items={getBreadcrumbItems()}
-            style={{ marginBottom: 16 }}
-          />
-        )}
+        {/* 路径导航栏 */}
+        <div style={{ marginBottom: 16 }}>
+          <Space.Compact style={{ width: '100%', maxWidth: '800px' }}>
+            <Input
+              value={pathInputValue}
+              onChange={(e) => {
+                setPathInputValue(e.target.value)
+                setIsEditingPath(true)
+              }}
+              onBlur={() => {
+                // 失去焦点时，如果值未改变，取消编辑状态
+                if (pathInputValue === currentPath) {
+                  setIsEditingPath(false)
+                }
+              }}
+              onKeyDown={handlePathInputKeyDown}
+              placeholder="输入路径或点击路径片段导航"
+              prefix={<FolderOpenOutlined style={{ color: '#1890ff' }} />}
+              suffix={
+                isEditingPath ? (
+                  <Space size="small">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EnterOutlined />}
+                      onClick={handlePathNavigate}
+                      title="跳转 (Enter)"
+                    />
+                    <Button
+                      type="text"
+                      size="small"
+                      onClick={() => {
+                        setPathInputValue(currentPath || '')
+                        setIsEditingPath(false)
+                      }}
+                      title="取消 (Esc)"
+                    >
+                      ✕
+                    </Button>
+                  </Space>
+                ) : (
+                  <Button
+                    type="text"
+                    size="small"
+                    onClick={() => setIsEditingPath(true)}
+                    title="编辑路径"
+                  >
+                    编辑
+                  </Button>
+                )
+              }
+              style={{ 
+                fontFamily: 'monospace',
+                fontSize: '13px'
+              }}
+            />
+          </Space.Compact>
+          
+          {/* 路径片段快速导航 */}
+          {currentPath && !isEditingPath && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              <Button
+                type="text"
+                size="small"
+                icon={<HomeOutlined />}
+                onClick={handleGoHome}
+                style={{ fontSize: '12px', padding: '0 8px' }}
+              >
+                根目录
+              </Button>
+              {getBreadcrumbItems().slice(1).map((item, index) => (
+                <React.Fragment key={index}>
+                  <span style={{ color: '#d9d9d9', margin: '0 4px' }}>/</span>
+                  {item.title}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
       </Card>
 
       {/* 文件树 */}

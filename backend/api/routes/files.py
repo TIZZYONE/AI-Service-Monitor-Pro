@@ -45,7 +45,7 @@ class FileSaveRequest(BaseModel):
 def get_home_directory() -> str:
     """获取基础目录（Windows上返回根目录，其他系统返回用户主目录）"""
     if platform.system() == "Windows":
-        # Windows上返回根目录（C:\）
+        # Windows上返回根目录（C:\），但允许访问所有盘符
         return os.path.splitdrive(os.path.expanduser("~"))[0] + "\\"
     else:
         # Linux/Mac上返回用户主目录
@@ -53,20 +53,47 @@ def get_home_directory() -> str:
 
 
 def is_safe_path(path: str, base_path: str) -> bool:
-    """检查路径是否安全（防止路径遍历攻击）"""
+    """检查路径是否安全（防止路径遍历攻击）
+    
+    Windows上：允许访问所有盘符（C:\、D:\、E:\等），但防止路径遍历攻击
+    其他系统：检查路径是否在基础路径内
+    """
     try:
-        # 解析路径
-        resolved_path = os.path.realpath(path)
-        resolved_base = os.path.realpath(base_path)
-        
-        # 规范化路径（统一使用正斜杠或反斜杠）
         if platform.system() == "Windows":
-            resolved_path = resolved_path.replace('/', '\\')
-            resolved_base = resolved_base.replace('/', '\\')
-            # Windows上确保路径以基础路径开头（不区分大小写）
-            return resolved_path.lower().startswith(resolved_base.lower())
+            # Windows上：检查是否是有效的盘符路径
+            # 先规范化路径，统一使用反斜杠
+            normalized_path = path.replace('/', '\\')
+            
+            # 检查路径格式：必须是 X:\ 或 X:\... 格式（X是盘符）
+            import re
+            # 匹配盘符路径：如 C:\、D:\、C:\Users 等
+            drive_pattern = re.compile(r'^[A-Za-z]:\\')
+            if not drive_pattern.match(normalized_path):
+                return False
+            
+            # 使用 realpath 解析路径（这会处理 .. 和符号链接）
+            try:
+                resolved_path = os.path.realpath(path)
+                resolved_path = resolved_path.replace('/', '\\')
+                
+                # 确保解析后的路径仍然是有效的盘符路径
+                if not drive_pattern.match(resolved_path):
+                    return False
+                
+                # 检查解析后的路径是否包含 ..（不应该有，因为 realpath 已经解析了）
+                if '..' in resolved_path:
+                    return False
+                
+                # Windows上允许访问所有盘符
+                return True
+            except (OSError, ValueError):
+                # 如果路径无效（如不存在的路径），realpath 会抛出异常
+                # 但我们仍然允许访问，让后续的代码处理错误
+                return drive_pattern.match(normalized_path) is not None
         else:
             # Linux/Mac上检查路径是否在基础路径内
+            resolved_path = os.path.realpath(path)
+            resolved_base = os.path.realpath(base_path)
             return resolved_path.startswith(resolved_base)
     except Exception:
         return False
@@ -74,15 +101,40 @@ def is_safe_path(path: str, base_path: str) -> bool:
 
 @router.get("/list", response_model=DirectoryResponse)
 async def list_directory(
-    path: Optional[str] = Query(None, description="目录路径，默认为用户主目录")
+    path: Optional[str] = Query(None, description="目录路径，默认为根目录（Windows显示所有盘符）")
 ):
     """
     列出指定目录的内容
+    
+    Windows上：如果不指定路径，返回所有可用的盘符列表
+    其他系统：如果不指定路径，返回用户主目录
     """
     try:
-        # 如果没有指定路径，使用用户主目录
-        if not path:
-            path = get_home_directory()
+        # 如果没有指定路径或路径为空字符串
+        if not path or path.strip() == "":
+            if platform.system() == "Windows":
+                # Windows上：返回所有可用的盘符
+                import string
+                available_drives = []
+                for drive_letter in string.ascii_uppercase:
+                    drive_path = f"{drive_letter}:\\"
+                    if os.path.exists(drive_path):
+                        available_drives.append(FileItem(
+                            name=f"{drive_letter}:",
+                            path=drive_path,
+                            is_directory=True,
+                            size=None,
+                            modified_time=None
+                        ))
+                
+                return DirectoryResponse(
+                    current_path="",
+                    parent_path=None,
+                    items=available_drives
+                )
+            else:
+                # 其他系统：使用用户主目录
+                path = get_home_directory()
         
         # 确保路径存在
         if not os.path.exists(path):
@@ -138,19 +190,21 @@ async def list_directory(
         
         # 获取父目录
         parent_path = None
-        if path != home_dir:
-            parent_path_obj = Path(path).parent
-            parent_path_str = str(parent_path_obj)
-            # Windows上，如果父目录是根目录（如C:\），允许返回
-            if platform.system() == "Windows":
-                # 检查是否是根目录（如 C:\）
-                if len(parent_path_str) == 3 and parent_path_str[1:3] == ":\\":
-                    parent_path = parent_path_str
-                elif is_safe_path(parent_path_str, home_dir):
-                    parent_path = parent_path_str
-            else:
-                if is_safe_path(parent_path_str, home_dir):
-                    parent_path = parent_path_str
+        parent_path_obj = Path(path).parent
+        parent_path_str = str(parent_path_obj)
+        
+        if platform.system() == "Windows":
+            # Windows上：检查父目录是否是有效的盘符路径
+            # 如果是盘符根目录（如 C:\），允许返回
+            if len(parent_path_str) == 3 and parent_path_str[1:3] == ":\\":
+                parent_path = parent_path_str
+            # 检查父目录是否安全（允许所有盘符）
+            elif is_safe_path(parent_path_str, home_dir):
+                parent_path = parent_path_str
+        else:
+            # Linux/Mac上检查父目录是否在基础路径内
+            if is_safe_path(parent_path_str, home_dir):
+                parent_path = parent_path_str
         
         return DirectoryResponse(
             current_path=path,
