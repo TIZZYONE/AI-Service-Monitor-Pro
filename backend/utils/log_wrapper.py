@@ -232,14 +232,28 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
             universal_newlines=True,
             bufsize=1  # 行缓冲
         )
+        
+        # 写入启动信息到日志文件
+        try:
+            rotator.write(f"[进程启动] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 命令: {command}\n")
+            rotator.write(f"[进程启动] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - PID: {process.pid}\n")
+            rotator.write(f"[进程启动] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 开始执行任务...\n\n")
+        except:
+            pass
+        
     except Exception as e:
         # 如果进程启动失败，记录错误到日志文件
+        error_msg = f"进程启动失败: {str(e)}"
         try:
-            rotator.write(f"\n[错误] 进程启动失败: {str(e)}\n")
+            rotator.write(f"\n[错误] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
+            import traceback
+            rotator.write(f"[错误堆栈]\n{traceback.format_exc()}\n")
             rotator.close()
         except:
             pass
         print(f"ERROR: Failed to start process: {str(e)}", file=sys.stderr)
+        import traceback
+        print(traceback.format_exc(), file=sys.stderr)
         sys.exit(1)
     
     def signal_handler(signum, frame):
@@ -260,6 +274,30 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
     signal.signal(signal.SIGINT, signal_handler)
     
     try:
+        # 等待一小段时间，检查进程是否立即失败
+        time.sleep(0.5)
+        if process.poll() is not None:
+            # 进程已经结束，读取所有输出
+            exit_code = process.returncode
+            remaining_output = process.stdout.read()
+            
+            # 写入输出到日志文件
+            if remaining_output:
+                rotator.write(remaining_output)
+            
+            # 写入结束标记
+            error_msg = f"进程启动后立即退出，退出码: {exit_code}"
+            rotator.write(f"\n[错误] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
+            if remaining_output:
+                rotator.write(f"[输出内容]\n{remaining_output}\n")
+            rotator.close()
+            
+            print(f"ERROR: {error_msg}", file=sys.stderr)
+            if remaining_output:
+                print(f"ERROR: 进程输出:\n{remaining_output}", file=sys.stderr)
+            print(f"LOG_FILE_PATH:{rotator.get_current_log_path()}", file=sys.stderr)
+            sys.exit(exit_code if exit_code is not None else 1)
+        
         # 实时读取进程输出并写入日志
         while True:
             # 检查进程是否结束
@@ -283,7 +321,10 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
         
         # 写入结束标记
         try:
-            rotator.write(f"\n[任务结束] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 退出码: {exit_code}\n")
+            if exit_code == 0:
+                rotator.write(f"\n[任务结束] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 退出码: {exit_code} (成功)\n")
+            else:
+                rotator.write(f"\n[任务结束] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 退出码: {exit_code} (失败)\n")
         except:
             pass
         
@@ -297,20 +338,25 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
         
     except Exception as e:
         # 记录错误到日志文件
+        error_msg = f"执行任务时发生异常: {str(e)}"
         try:
-            rotator.write(f"\n[异常] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {str(e)}\n")
+            rotator.write(f"\n[异常] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
+            import traceback
+            rotator.write(f"[异常堆栈]\n{traceback.format_exc()}\n")
             rotator.close()
         except:
             pass
         
         try:
-            process.kill()
+            if process.poll() is None:
+                process.kill()
         except:
             pass
         
-        print(f"Error: {str(e)}", file=sys.stderr)
+        print(f"ERROR: {error_msg}", file=sys.stderr)
         import traceback
         print(traceback.format_exc(), file=sys.stderr)
+        print(f"LOG_FILE_PATH:{rotator.get_current_log_path()}", file=sys.stderr)
         sys.exit(1)
 
 

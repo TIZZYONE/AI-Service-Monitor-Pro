@@ -450,7 +450,62 @@ class TaskScheduler:
                 
                 # 等待一小段时间，让log_wrapper初始化并创建日志文件
                 import asyncio
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1.0)  # 增加等待时间，确保log_wrapper有足够时间初始化
+                
+                # 检查进程是否已经失败
+                process_exit_code = process.poll()
+                if process_exit_code is not None:
+                    # 进程已经结束，说明启动失败
+                    error_msg = f"任务进程启动后立即退出，退出码: {process_exit_code}"
+                    logger.error(f"任务 {task_id}: {error_msg}")
+                    
+                    # 读取所有stderr输出
+                    try:
+                        remaining_stderr = process.stderr.read()
+                        if remaining_stderr:
+                            stderr_lines.extend(remaining_stderr.strip().split('\n'))
+                            logger.error(f"任务 {task_id} stderr完整输出: {remaining_stderr}")
+                    except:
+                        pass
+                    
+                    # 将错误信息写入日志文件
+                    try:
+                        if os.path.exists(log_file_path):
+                            with open(log_file_path, 'a', encoding='utf-8') as f:
+                                f.write(f"\n[错误] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
+                                if stderr_lines:
+                                    f.write(f"[错误详情] stderr输出:\n")
+                                    for line in stderr_lines:
+                                        f.write(f"  {line}\n")
+                                f.flush()
+                        else:
+                            # 如果日志文件不存在，尝试创建并写入错误信息
+                            log_dir = os.path.dirname(log_file_path)
+                            os.makedirs(log_dir, exist_ok=True)
+                            with open(log_file_path, 'w', encoding='utf-8') as f:
+                                f.write(f"[任务启动] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 任务ID: {task_id}, 任务名称: {task.name}\n")
+                                f.write(f"[错误] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
+                                if stderr_lines:
+                                    f.write(f"[错误详情] stderr输出:\n")
+                                    for line in stderr_lines:
+                                        f.write(f"  {line}\n")
+                                f.flush()
+                    except Exception as write_error:
+                        logger.error(f"任务 {task_id} 写入错误信息到日志文件失败: {str(write_error)}")
+                    
+                    # 更新任务状态为失败
+                    await service.update_task_status(task_id, TaskStatus.FAILED)
+                    
+                    # 结束日志记录
+                    if task_id in self.task_log_entries:
+                        await log_service.end_log_entry(self.task_log_entries[task_id])
+                        del self.task_log_entries[task_id]
+                    
+                    # 清理进程
+                    if task_id in self.running_processes:
+                        del self.running_processes[task_id]
+                    
+                    raise Exception(f"{error_msg}. stderr: {'; '.join(stderr_lines[:5])}")  # 只显示前5行
                 
                 # 检查日志文件是否已创建
                 if os.path.exists(log_file_path):
@@ -458,24 +513,74 @@ class TaskScheduler:
                 else:
                     logger.warning(f"任务 {task_id} 日志文件尚未创建: {log_file_path}")
                     logger.warning(f"任务 {task_id} stderr输出: {stderr_lines}")
+                    
+                    # 如果日志文件不存在，尝试从stderr中获取实际日志路径
+                    actual_log_path = None
+                    for line in stderr_lines:
+                        if 'LOG_FILE_PATH:' in line:
+                            actual_log_path = line.split('LOG_FILE_PATH:')[-1].strip()
+                            break
+                    
+                    if actual_log_path and os.path.exists(actual_log_path):
+                        logger.info(f"任务 {task_id} 找到实际日志文件: {actual_log_path}")
+                        log_file_path = actual_log_path
+                        self.task_log_files[task_id] = actual_log_path
+                    else:
+                        logger.error(f"任务 {task_id} 无法找到日志文件")
                 
                 # 保存进程信息
                 self.running_processes[task_id] = process
                 await service.update_task_status(task_id, TaskStatus.RUNNING, process.pid)
                 
                 logger.info(f"任务 {task.name} (ID: {task_id}) 已启动，PID: {process.pid}")
-                logger.info(f"任务 {task_id} 预期日志文件路径: {log_file_path}")
+                logger.info(f"任务 {task_id} 日志文件路径: {log_file_path}")
                 
             except Exception as e:
-                logger.error(f"启动任务 {task_id} 失败: {str(e)}")
+                error_msg = f"启动任务失败: {str(e)}"
+                logger.error(f"任务 {task_id}: {error_msg}")
                 import traceback
-                logger.error(f"详细错误信息: {traceback.format_exc()}")
+                error_traceback = traceback.format_exc()
+                logger.error(f"任务 {task_id} 详细错误信息: {error_traceback}")
+                
+                # 将错误信息写入日志文件
+                try:
+                    if task_id in self.task_log_files:
+                        log_file_path = self.task_log_files[task_id]
+                    else:
+                        log_file_path = log_service.generate_log_file_path(task_id, task.name if task else f"任务{task_id}")
+                    
+                    # 确保日志目录存在
+                    log_dir = os.path.dirname(log_file_path)
+                    os.makedirs(log_dir, exist_ok=True)
+                    
+                    # 写入错误信息到日志文件
+                    file_exists = os.path.exists(log_file_path)
+                    with open(log_file_path, 'a' if file_exists else 'w', encoding='utf-8') as f:
+                        if not file_exists:
+                            f.write(f"[任务启动] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 任务ID: {task_id}, 任务名称: {task.name if task else '未知'}\n")
+                        f.write(f"\n[错误] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n")
+                        f.write(f"[错误堆栈]\n{error_traceback}\n")
+                        f.flush()
+                    logger.info(f"任务 {task_id} 错误信息已写入日志文件: {log_file_path}")
+                except Exception as write_error:
+                    logger.error(f"任务 {task_id} 写入错误信息到日志文件失败: {str(write_error)}")
+                
                 await service.update_task_status(task_id, TaskStatus.FAILED)
                 
                 # 结束日志记录
                 if task_id in self.task_log_entries:
                     await log_service.end_log_entry(self.task_log_entries[task_id])
                     del self.task_log_entries[task_id]
+                
+                # 清理进程
+                if task_id in self.running_processes:
+                    try:
+                        process = self.running_processes[task_id]
+                        if process.poll() is None:
+                            process.terminate()
+                    except:
+                        pass
+                    del self.running_processes[task_id]
     
     async def stop_task(self, task_id: int) -> bool:
         """停止任务"""
