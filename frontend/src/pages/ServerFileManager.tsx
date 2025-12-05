@@ -26,7 +26,7 @@ import {
   EditOutlined
 } from '@ant-design/icons'
 import { multiServerApi } from '../services/multiServerApi'
-import { DirectoryResponse, FileItem } from '../types'
+import { DirectoryResponse } from '../types'
 
 const { TextArea } = Input
 
@@ -57,7 +57,7 @@ const ServerFileManager: React.FC = () => {
   const [uploading, setUploading] = useState(false)
 
   // 下载文件
-  const handleDownload = useCallback(async (filePath: string, fileName: string) => {
+  const handleDownload = useCallback(async (filePath: string) => {
     if (!serverId) return
 
     try {
@@ -116,7 +116,7 @@ const ServerFileManager: React.FC = () => {
                   type="text"
                   size="small"
                   icon={<DownloadOutlined />}
-                  onClick={() => handleDownload(item.path, item.name)}
+                  onClick={() => handleDownload(item.path)}
                   title="下载"
                 />
                 <Button
@@ -203,7 +203,7 @@ const ServerFileManager: React.FC = () => {
   }, [loadDirectory])
 
   // 加载子节点（懒加载）
-  const onLoadData = async (node: any) => {
+  const onLoadData = useCallback(async (node: any) => {
     if (!serverId || !node.isDirectory || node.children?.length > 0) {
       return
     }
@@ -231,7 +231,7 @@ const ServerFileManager: React.FC = () => {
                   type="text"
                   size="small"
                   icon={<DownloadOutlined />}
-                  onClick={() => handleDownload(item.path, item.name)}
+                  onClick={() => handleDownload(item.path)}
                   title="下载"
                 />
                 <Button
@@ -276,7 +276,7 @@ const ServerFileManager: React.FC = () => {
       message.error(`加载目录失败: ${error.message || '未知错误'}`)
       console.error('加载子目录失败:', error)
     }
-  }
+  }, [serverId, handleDownload, handleEdit])
 
   // 处理节点展开
   const onExpand = (expandedKeysValue: React.Key[]) => {
@@ -284,7 +284,7 @@ const ServerFileManager: React.FC = () => {
   }
 
   // 处理节点选择（点击文件夹）
-  const onSelect = (selectedKeys: React.Key[], info: any) => {
+  const onSelect = (_selectedKeys: React.Key[], info: any) => {
     const node = info.node
     if (node.isDirectory) {
       // 如果是目录，加载该目录的内容
