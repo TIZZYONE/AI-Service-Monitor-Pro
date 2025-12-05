@@ -4,7 +4,7 @@
 import os
 import platform
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, status, Query, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse
 from typing import List, Optional
 from pydantic import BaseModel
@@ -326,7 +326,7 @@ async def get_file_content(
 @router.post("/save")
 async def save_file_content(
     path: str = Query(..., description="文件路径"),
-    request: FileSaveRequest
+    request: FileSaveRequest = Body(...)
 ):
     """
     保存文件内容（用于在线编辑）
