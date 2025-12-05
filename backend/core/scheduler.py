@@ -391,7 +391,7 @@ class TaskScheduler:
                             full_command = f"{task.activate_env_command} && {task.main_program_command}"
                             original_command = f'cmd /c "{full_command}"'
                         else:
-                            # 使用conda run（最可靠的方式）
+                            # 查找conda可执行文件
                             conda_exe = os.environ.get('CONDA_EXE', 'conda')
                             if not conda_exe or not os.path.exists(conda_exe):
                                 # 如果CONDA_EXE不存在，尝试查找conda
@@ -403,31 +403,42 @@ class TaskScheduler:
                                 else:
                                     conda_exe = 'conda'
                             
+                            # 确保conda_exe路径有引号（如果有空格或特殊字符）
+                            if ' ' in conda_exe or not os.path.isabs(conda_exe):
+                                conda_exe_quoted = f'"{conda_exe}"'
+                            else:
+                                conda_exe_quoted = conda_exe
+                            
                             # 构建命令
                             if other_commands:
                                 # 有cd等命令，需要先执行
-                                pre_commands = ' && '.join(other_commands)
                                 # 提取工作目录（如果有cd命令）
                                 work_dir = None
+                                remaining_commands = []
                                 for cmd in other_commands:
                                     if cmd.strip().startswith('cd '):
-                                        work_dir = cmd.replace('cd ', '').strip()
-                                        break
+                                        work_dir = cmd.replace('cd ', '').strip().strip('"\'')
+                                    else:
+                                        remaining_commands.append(cmd)
                                 
                                 if work_dir:
-                                    # 使用conda run，并在指定目录执行
+                                    # 有cd命令，在指定目录执行
                                     # 构建完整命令：cd到目录，然后使用conda run执行
                                     script_cmd = task.main_program_command
-                                    # 确保工作目录路径正确（处理引号）
-                                    work_dir_quoted = work_dir if ' ' not in work_dir else f'"{work_dir}"'
-                                    original_command = f'cmd /c "cd /d {work_dir_quoted} && {conda_exe} run -n {env_name} --no-capture-output {script_cmd}"'
+                                    # 简化：直接使用conda run，它会继承当前工作目录
+                                    # 但我们需要先cd，所以使用cmd /c来执行
+                                    original_command = f'cmd /c "cd /d "{work_dir}" && {conda_exe_quoted} run -n {env_name} --no-capture-output {script_cmd}"'
+                                elif remaining_commands:
+                                    # 有其他命令但没有cd
+                                    pre_cmd = ' && '.join(remaining_commands)
+                                    full_cmd = f"{pre_cmd} && {task.main_program_command}"
+                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output cmd /c "{full_cmd}""'
                                 else:
-                                    # 没有cd，直接使用conda run执行所有命令
-                                    full_cmd = f"{pre_commands} && {task.main_program_command}"
-                                    original_command = f'"{conda_exe}" run -n {env_name} --no-capture-output cmd /c "{full_cmd}"'
+                                    # 只有conda activate，直接使用conda run
+                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output cmd /c "{task.main_program_command}""'
                             else:
                                 # 只有conda activate，直接使用conda run
-                                original_command = f'"{conda_exe}" run -n {env_name} --no-capture-output cmd /c "{task.main_program_command}"'
+                                original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output cmd /c "{task.main_program_command}""'
                     else:
                         # Linux/Mac上使用bash
                         conda_init_command = self._get_conda_init_command()
@@ -468,7 +479,9 @@ class TaskScheduler:
                     task.name  # 任务名称
                 ]
                 
-                logger.info(f"任务 {task_id} 完整命令: {original_command}")
+                logger.info(f"任务 {task_id} 原始激活命令: {task.activate_env_command}")
+                logger.info(f"任务 {task_id} 原始主程序命令: {task.main_program_command}")
+                logger.info(f"任务 {task_id} 构建的完整命令: {original_command}")
                 logger.info(f"任务 {task_id} 使用日志包装脚本启动")
                 logger.info(f"任务 {task_id} Python解释器: {python_executable}")
                 logger.info(f"任务 {task_id} 包装脚本路径: {wrapper_script}")
