@@ -367,16 +367,43 @@ class TaskScheduler:
                 if 'conda activate' in task.activate_env_command:
                     # Windows上使用cmd而不是PowerShell来执行conda命令，避免ANSI转义码问题
                     if system == "windows":
-                        # 在Windows cmd中，直接使用call conda activate，这是最简单可靠的方式
-                        # 构建完整命令：激活命令 && 主程序命令
-                        full_command = f"{task.activate_env_command} && {task.main_program_command}"
-                        # 使用call来执行conda activate（在cmd中必须使用call）
-                        # 如果命令中已经有call，就不需要再加
-                        if not full_command.strip().startswith('call '):
-                            # 检查activate_env_command是否包含call
-                            if 'call ' not in task.activate_env_command:
-                                # 替换conda activate为call conda activate
-                                full_command = full_command.replace('conda activate', 'call conda activate', 1)
+                        # 在Windows cmd中，conda activate是批处理脚本，必须使用call
+                        # 解析激活命令，确保正确处理
+                        activate_cmd = task.activate_env_command.strip()
+                        
+                        # 如果激活命令中包含 && 或 ;，需要分开处理
+                        # 例如：conda activate env && cd path 或 conda activate env ; cd path
+                        separator = None
+                        if ' && ' in activate_cmd:
+                            separator = ' && '
+                            parts = activate_cmd.split(' && ', 1)
+                        elif ' ; ' in activate_cmd:
+                            separator = ' ; '
+                            parts = activate_cmd.split(' ; ', 1)
+                        elif '&&' in activate_cmd and ' && ' not in activate_cmd:
+                            # 没有空格的 &&
+                            separator = '&&'
+                            parts = activate_cmd.split('&&', 1)
+                        elif ';' in activate_cmd and ' ; ' not in activate_cmd:
+                            # 没有空格的 ;
+                            separator = ';'
+                            parts = activate_cmd.split(';', 1)
+                        
+                        if separator and len(parts) > 1:
+                            conda_part = parts[0].strip()
+                            other_part = parts[1].strip()
+                            
+                            # 处理conda activate部分
+                            if 'call ' not in conda_part:
+                                conda_part = conda_part.replace('conda activate', 'call conda activate', 1)
+                            
+                            # 构建完整命令，统一使用 && 连接
+                            full_command = f"{conda_part} && {other_part} && {task.main_program_command}"
+                        else:
+                            # 激活命令中没有分隔符，直接处理
+                            if 'call ' not in activate_cmd:
+                                activate_cmd = activate_cmd.replace('conda activate', 'call conda activate', 1)
+                            full_command = f"{activate_cmd} && {task.main_program_command}"
                         
                         # 使用cmd /c执行
                         original_command = f'cmd /c "{full_command}"'
