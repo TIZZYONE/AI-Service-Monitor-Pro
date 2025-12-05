@@ -24,17 +24,30 @@ CHECK_INTERVAL = 60  # 检查间隔（秒）
 # Windows conda 路径配置
 # 如果环境变量找不到 conda，可以在这里手动配置 conda 路径
 # 配置方式1（推荐）：设置为 conda 的安装根目录
-#   WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3"
+#   例如: WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3"
 # 配置方式2：设置为 conda.exe 的完整路径
-#   WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3\Scripts\conda.exe"
+#   例如: WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3\Scripts\conda.exe"
 # 配置方式3：设置为 Scripts 目录
-#   WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3\Scripts"
+#   例如: WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3\Scripts"
 # 配置方式4：通过环境变量设置（在系统环境变量或启动脚本中设置 WINDOWS_CONDA_BASE）
 #   如果设置为 None 或空字符串，则自动从环境变量 CONDA_BASE/CONDA_EXE 和系统 PATH 中查找
-WINDOWS_CONDA_BASE = os.environ.get('WINDOWS_CONDA_BASE', '').strip() or None
 
-# 如果需要手动配置，取消下面的注释并设置正确的路径：
-# WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3"
+# ========== 手动配置区域（如果需要，取消下面的注释并设置正确的路径）==========
+# 方式1：直接在这里配置（推荐，优先级最高）
+# 取消下面的注释并设置您的 conda 路径：
+WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3"
+
+# 方式2：通过环境变量配置（如果上面注释掉了，会使用环境变量）
+# 在系统环境变量或启动脚本中设置 WINDOWS_CONDA_BASE
+# 如果两种方式都没有配置，则自动从环境变量 CONDA_BASE/CONDA_EXE 和系统 PATH 中查找
+
+# 如果上面没有手动配置（被注释掉了），则从环境变量获取
+try:
+    if WINDOWS_CONDA_BASE is None or WINDOWS_CONDA_BASE == '':
+        WINDOWS_CONDA_BASE = os.environ.get('WINDOWS_CONDA_BASE', '').strip() or None
+except NameError:
+    # 如果变量不存在（被注释掉了），从环境变量获取
+    WINDOWS_CONDA_BASE = os.environ.get('WINDOWS_CONDA_BASE', '').strip() or None
 # ==================================================
 
 
@@ -231,19 +244,27 @@ def _find_conda_base():
     if system == 'windows' and WINDOWS_CONDA_BASE:
         configured_path = WINDOWS_CONDA_BASE.strip()
         if configured_path:
+            print(f"DEBUG: Using configured WINDOWS_CONDA_BASE: {configured_path}", file=sys.stderr)
             # 如果配置的是 conda.exe 的完整路径
             if configured_path.endswith('conda.exe') or configured_path.endswith('conda.bat'):
                 if os.path.exists(configured_path):
-                    # conda.exe 在 Scripts 目录下，base 是上一级目录
-                    return os.path.dirname(os.path.dirname(configured_path))
+                    base_path = os.path.dirname(os.path.dirname(configured_path))
+                    print(f"DEBUG: Found conda base from exe: {base_path}", file=sys.stderr)
+                    return base_path
+                else:
+                    print(f"WARNING: Configured conda exe not found: {configured_path}", file=sys.stderr)
             # 如果配置的是 conda 的 base 目录
             elif os.path.exists(configured_path):
+                print(f"DEBUG: Found conda base directory: {configured_path}", file=sys.stderr)
                 return configured_path
             # 如果配置的是 Scripts 目录
             elif os.path.basename(configured_path).lower() == 'scripts':
                 base_path = os.path.dirname(configured_path)
                 if os.path.exists(base_path):
+                    print(f"DEBUG: Found conda base from Scripts dir: {base_path}", file=sys.stderr)
                     return base_path
+            else:
+                print(f"WARNING: Configured path does not exist: {configured_path}", file=sys.stderr)
     
     # 方式1: 从环境变量 CONDA_BASE 获取
     conda_base = os.environ.get('CONDA_BASE', '')
@@ -293,14 +314,27 @@ def _build_conda_init_command(command: str):
         conda_base = _find_conda_base()
         
         if conda_base:
+            print(f"DEBUG: Found conda_base: {conda_base}", file=sys.stderr)
             # 找到 conda 的初始化脚本
             # 方式1: 使用 condabin\conda.bat（推荐，conda 4.6+ 使用）
             conda_bat = os.path.join(conda_base, 'condabin', 'conda.bat')
+            print(f"DEBUG: Trying conda.bat at: {conda_bat}", file=sys.stderr)
             if not os.path.exists(conda_bat):
                 # 方式2: 使用 Scripts\conda.exe
                 conda_exe = os.path.join(conda_base, 'Scripts', 'conda.exe')
+                print(f"DEBUG: Trying conda.exe at: {conda_exe}", file=sys.stderr)
                 if os.path.exists(conda_exe):
                     conda_bat = conda_exe
+                else:
+                    # 方式3: 尝试 Scripts\activate.bat（作为备选）
+                    activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
+                    print(f"DEBUG: Trying activate.bat at: {activate_bat}", file=sys.stderr)
+                    if os.path.exists(activate_bat):
+                        # 使用 activate.bat 初始化 base 环境
+                        init_prefix = f'@echo off && chcp 65001 >nul && call "{activate_bat}" base && '
+                        wrapped_command = f'{init_prefix}{command}'
+                        print(f"DEBUG: Wrapped command with activate.bat: {wrapped_command}", file=sys.stderr)
+                        return wrapped_command
             
             if os.path.exists(conda_bat):
                 # 构建初始化命令
@@ -316,6 +350,10 @@ def _build_conda_init_command(command: str):
                 wrapped_command = f'{init_prefix}{command}'
                 print(f"DEBUG: Wrapped command with conda init: {wrapped_command}", file=sys.stderr)
                 return wrapped_command
+            else:
+                print(f"ERROR: Could not find conda.bat, conda.exe, or activate.bat in {conda_base}", file=sys.stderr)
+        else:
+            print(f"WARNING: Could not find conda_base, conda activate may fail", file=sys.stderr)
         
         # 如果找不到 conda，返回原命令（可能会失败，但至少尝试）
         print(f"WARNING: Could not find conda installation, conda activate may fail", file=sys.stderr)
