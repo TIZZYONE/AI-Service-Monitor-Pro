@@ -16,9 +16,26 @@ from datetime import datetime, date
 from pathlib import Path
 import threading
 
-# 配置
+# ==================== 配置区域 ====================
+# 日志文件配置
 MAX_LINES_PER_FILE = 50000
 CHECK_INTERVAL = 60  # 检查间隔（秒）
+
+# Windows conda 路径配置
+# 如果环境变量找不到 conda，可以在这里手动配置 conda 路径
+# 配置方式1（推荐）：设置为 conda 的安装根目录
+#   WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3"
+# 配置方式2：设置为 conda.exe 的完整路径
+#   WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3\Scripts\conda.exe"
+# 配置方式3：设置为 Scripts 目录
+#   WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3\Scripts"
+# 配置方式4：通过环境变量设置（在系统环境变量或启动脚本中设置 WINDOWS_CONDA_BASE）
+#   如果设置为 None 或空字符串，则自动从环境变量 CONDA_BASE/CONDA_EXE 和系统 PATH 中查找
+WINDOWS_CONDA_BASE = os.environ.get('WINDOWS_CONDA_BASE', '').strip() or None
+
+# 如果需要手动配置，取消下面的注释并设置正确的路径：
+# WINDOWS_CONDA_BASE = r"E:\ProgramData\anaconda3"
+# ==================================================
 
 
 class LogRotator:
@@ -198,22 +215,49 @@ class LogRotator:
 
 
 def _find_conda_base():
-    """查找 conda 安装路径"""
+    """查找 conda 安装路径
+    
+    查找顺序：
+    1. Windows 手动配置的路径（WINDOWS_CONDA_BASE）
+    2. 环境变量 CONDA_BASE
+    3. 环境变量 CONDA_EXE（从中推导 base 路径）
+    4. 从系统 PATH 中查找 conda 命令
+    """
     import platform
     
-    # 方式1: 从环境变量获取
+    system = platform.system().lower()
+    
+    # Windows 优先：使用手动配置的路径
+    if system == 'windows' and WINDOWS_CONDA_BASE:
+        configured_path = WINDOWS_CONDA_BASE.strip()
+        if configured_path:
+            # 如果配置的是 conda.exe 的完整路径
+            if configured_path.endswith('conda.exe') or configured_path.endswith('conda.bat'):
+                if os.path.exists(configured_path):
+                    # conda.exe 在 Scripts 目录下，base 是上一级目录
+                    return os.path.dirname(os.path.dirname(configured_path))
+            # 如果配置的是 conda 的 base 目录
+            elif os.path.exists(configured_path):
+                return configured_path
+            # 如果配置的是 Scripts 目录
+            elif os.path.basename(configured_path).lower() == 'scripts':
+                base_path = os.path.dirname(configured_path)
+                if os.path.exists(base_path):
+                    return base_path
+    
+    # 方式1: 从环境变量 CONDA_BASE 获取
     conda_base = os.environ.get('CONDA_BASE', '')
     if conda_base and os.path.exists(conda_base):
         return conda_base
     
-    # 方式2: 从 CONDA_EXE 获取
+    # 方式2: 从环境变量 CONDA_EXE 获取
     conda_exe = os.environ.get('CONDA_EXE', '')
     if conda_exe and os.path.exists(conda_exe):
         # conda.exe 通常在 Scripts 目录下，base 是上一级目录
         return os.path.dirname(os.path.dirname(conda_exe))
     
-    # 方式3: 尝试从 PATH 中查找
-    if platform.system().lower() == 'windows':
+    # 方式3: 尝试从 PATH 中查找（Windows）
+    if system == 'windows':
         try:
             result = subprocess.run(['where', 'conda'], capture_output=True, text=True, timeout=2)
             if result.returncode == 0 and result.stdout.strip():
