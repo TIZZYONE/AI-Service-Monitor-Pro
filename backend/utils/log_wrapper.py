@@ -228,9 +228,12 @@ def _find_conda_base():
 
 
 def _build_conda_init_command(command: str):
-    """构建包含 conda 初始化的完整命令"""
+    """构建包含 conda 初始化的完整命令
+    
+    在 Windows 上，如果命令包含 conda activate，需要先初始化 conda 环境。
+    这样可以让 conda activate 在非交互式环境中正常工作。
+    """
     import platform
-    import re
     
     # 检查命令中是否包含 conda activate
     has_conda_activate = 'conda activate' in command.lower()
@@ -242,32 +245,36 @@ def _build_conda_init_command(command: str):
     system = platform.system().lower()
     
     if system == 'windows':
-        # Windows: 需要初始化 conda 环境
+        # Windows: 需要初始化 conda 环境才能使用 conda activate
         conda_base = _find_conda_base()
         
         if conda_base:
-            # 找到 conda 的 Scripts\activate.bat
-            activate_bat = os.path.join(conda_base, 'Scripts', 'activate.bat')
-            if not os.path.exists(activate_bat):
-                # 尝试 condabin 目录
-                activate_bat = os.path.join(conda_base, 'condabin', 'activate.bat')
+            # 找到 conda 的初始化脚本
+            # 方式1: 使用 condabin\conda.bat（推荐，conda 4.6+ 使用）
+            conda_bat = os.path.join(conda_base, 'condabin', 'conda.bat')
+            if not os.path.exists(conda_bat):
+                # 方式2: 使用 Scripts\conda.exe
+                conda_exe = os.path.join(conda_base, 'Scripts', 'conda.exe')
+                if os.path.exists(conda_exe):
+                    conda_bat = conda_exe
             
-            if os.path.exists(activate_bat):
+            if os.path.exists(conda_bat):
                 # 构建初始化命令
-                # 在 Windows cmd 中，需要先初始化 conda，然后才能使用 activate
-                # 使用 @call 来确保批处理脚本的环境变量修改生效
-                
-                # 解析用户命令，提取 conda activate 部分和其他命令
-                # 简单处理：如果命令中包含 "conda activate"，需要包装
-                
-                # 方法：将整个命令包装在 cmd 中，先初始化 conda，然后执行
+                # 在 Windows cmd 中，需要先初始化 conda，然后才能使用 conda activate
                 # 使用 chcp 65001 确保 UTF-8 编码，避免中文路径问题
-                init_prefix = f'@echo off && chcp 65001 >nul && call "{activate_bat}" base && '
+                # 先初始化 conda（通过激活 base 环境），然后执行用户命令
+                
+                # 注意：call 是必需的，否则批处理脚本不会修改当前环境
+                # 使用 @echo off 减少输出
+                init_prefix = f'@echo off && chcp 65001 >nul && call "{conda_bat}" activate base && '
                 
                 # 返回包装后的命令
-                return f'{init_prefix}{command}'
+                wrapped_command = f'{init_prefix}{command}'
+                print(f"DEBUG: Wrapped command with conda init: {wrapped_command}", file=sys.stderr)
+                return wrapped_command
         
         # 如果找不到 conda，返回原命令（可能会失败，但至少尝试）
+        print(f"WARNING: Could not find conda installation, conda activate may fail", file=sys.stderr)
         return command
     else:
         # Linux/Mac: 使用 source conda.sh
@@ -275,7 +282,9 @@ def _build_conda_init_command(command: str):
         if conda_base:
             conda_sh = os.path.join(conda_base, 'etc', 'profile.d', 'conda.sh')
             if os.path.exists(conda_sh):
-                return f'source "{conda_sh}" && {command}'
+                wrapped_command = f'source "{conda_sh}" && {command}'
+                print(f"DEBUG: Wrapped command with conda init: {wrapped_command}", file=sys.stderr)
+                return wrapped_command
         
         return command
 
