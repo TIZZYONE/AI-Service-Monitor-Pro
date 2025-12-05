@@ -392,21 +392,48 @@ class TaskScheduler:
                             original_command = f'cmd /c "{full_command}"'
                         else:
                             # 查找conda可执行文件
-                            conda_exe = os.environ.get('CONDA_EXE', 'conda')
-                            if not conda_exe or not os.path.exists(conda_exe):
+                            conda_exe = os.environ.get('CONDA_EXE', '')
+                            conda_found = False
+                            
+                            # 首先检查CONDA_EXE
+                            if conda_exe and os.path.exists(conda_exe):
+                                conda_found = True
+                            else:
                                 # 如果CONDA_EXE不存在，尝试查找conda
                                 conda_base = os.environ.get('CONDA_BASE', '')
                                 if conda_base and os.path.exists(conda_base):
                                     conda_exe = os.path.join(conda_base, 'Scripts', 'conda.exe')
-                                    if not os.path.exists(conda_exe):
-                                        conda_exe = 'conda'  # 回退到系统PATH中的conda
-                                else:
-                                    conda_exe = 'conda'
+                                    if os.path.exists(conda_exe):
+                                        conda_found = True
+                                    else:
+                                        # 尝试conda.bat
+                                        conda_bat = os.path.join(conda_base, 'Scripts', 'conda.bat')
+                                        if os.path.exists(conda_bat):
+                                            conda_exe = conda_bat
+                                            conda_found = True
                             
-                            # 确保conda_exe路径有引号（如果有空格或特殊字符）
-                            if ' ' in conda_exe or not os.path.isabs(conda_exe):
-                                conda_exe_quoted = f'"{conda_exe}"'
+                            # 如果还是找不到，尝试系统PATH中的conda
+                            if not conda_found:
+                                import shutil
+                                conda_path = shutil.which('conda')
+                                if conda_path:
+                                    conda_exe = conda_path
+                                    conda_found = True
+                                else:
+                                    conda_exe = 'conda'  # 最后回退，让系统尝试
+                            
+                            # 记录conda路径信息
+                            logger.info(f"任务 {task_id} 找到conda: {conda_exe}, 存在: {os.path.exists(conda_exe) if os.path.isabs(conda_exe) else '在PATH中'}")
+                            
+                            # 确保conda_exe路径有引号（如果有空格或不是绝对路径）
+                            if os.path.isabs(conda_exe):
+                                # 绝对路径，如果有空格需要引号
+                                if ' ' in conda_exe:
+                                    conda_exe_quoted = f'"{conda_exe}"'
+                                else:
+                                    conda_exe_quoted = conda_exe
                             else:
+                                # 相对路径（在PATH中），不需要引号
                                 conda_exe_quoted = conda_exe
                             
                             # 构建命令
@@ -423,9 +450,9 @@ class TaskScheduler:
                                 
                                 if work_dir:
                                     # 有cd命令，在指定目录执行
-                                    # 验证路径是否存在
+                                    # 验证路径是否存在（记录警告但不阻止执行）
                                     if not os.path.exists(work_dir):
-                                        raise FileNotFoundError(f"工作目录不存在: {work_dir}")
+                                        logger.warning(f"任务 {task_id} 工作目录不存在: {work_dir}，将继续执行但可能失败")
                                     
                                     # 构建完整命令：cd到目录，然后使用conda run执行
                                     script_cmd = task.main_program_command
@@ -443,13 +470,16 @@ class TaskScheduler:
                                     # 有其他命令但没有cd
                                     pre_cmd = ' && '.join(remaining_commands)
                                     full_cmd = f"{pre_cmd} && {task.main_program_command}"
-                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output cmd /c "{full_cmd}""'
+                                    # conda run会在conda环境中执行，不需要嵌套cmd /c
+                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output {full_cmd}"'
                                 else:
                                     # 只有conda activate，直接使用conda run
-                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output cmd /c "{task.main_program_command}""'
+                                    # conda run会在conda环境中执行，不需要嵌套cmd /c
+                                    original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output {task.main_program_command}"'
                             else:
                                 # 只有conda activate，直接使用conda run
-                                original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output cmd /c "{task.main_program_command}""'
+                                # conda run会在conda环境中执行，不需要嵌套cmd /c
+                                original_command = f'cmd /c "{conda_exe_quoted} run -n {env_name} --no-capture-output {task.main_program_command}"'
                     else:
                         # Linux/Mac上使用bash
                         conda_init_command = self._get_conda_init_command()

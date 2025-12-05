@@ -269,9 +269,17 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
                 pass
         sys.exit(0)
     
-    # 注册信号处理
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    # 注册信号处理（Windows上可能不支持某些信号）
+    try:
+        signal.signal(signal.SIGTERM, signal_handler)
+    except (AttributeError, ValueError):
+        # Windows上可能不支持SIGTERM
+        pass
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+    except (AttributeError, ValueError):
+        # Windows上可能不支持SIGINT
+        pass
     
     try:
         # 等待一小段时间，检查进程是否立即失败
