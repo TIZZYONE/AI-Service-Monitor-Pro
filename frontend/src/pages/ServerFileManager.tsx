@@ -85,49 +85,6 @@ const ServerFileManager: React.FC = () => {
     }
   }, [serverId])
 
-  // 上传文件
-  const handleUpload = useCallback(async (file: File) => {
-    if (!serverId) return false
-
-    setUploading(true)
-    try {
-      await multiServerApi.uploadFile(serverId, file, currentPath || '')
-      message.success('文件上传成功')
-      loadDirectory(currentPath || undefined)
-      return false // 阻止默认上传行为
-    } catch (error: any) {
-      message.error(error.message || '文件上传失败')
-      return false
-    } finally {
-      setUploading(false)
-    }
-  }, [serverId, currentPath, loadDirectory])
-
-  // 保存文件
-  const handleSaveFile = async () => {
-    if (!serverId || !editingFile) return
-
-    setSaving(true)
-    try {
-      await multiServerApi.saveFileContent(serverId, editingFile.path, fileContent)
-      message.success('文件保存成功')
-      setEditDrawerVisible(false)
-      setEditingFile(null)
-      setFileContent('')
-    } catch (error: any) {
-      message.error(error.message || '文件保存失败')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // 取消编辑
-  const handleCancelEdit = () => {
-    setEditDrawerVisible(false)
-    setEditingFile(null)
-    setFileContent('')
-  }
-
   // 加载目录内容
   const loadDirectory = useCallback(async (path?: string) => {
     if (!serverId) return
@@ -196,6 +153,49 @@ const ServerFileManager: React.FC = () => {
       setLoading(false)
     }
   }, [serverId, handleDownload, handleEdit])
+
+  // 上传文件
+  const handleUpload = useCallback(async (file: File) => {
+    if (!serverId) return false
+
+    setUploading(true)
+    try {
+      await multiServerApi.uploadFile(serverId, file, currentPath || '')
+      message.success('文件上传成功')
+      loadDirectory(currentPath || undefined)
+      return false // 阻止默认上传行为
+    } catch (error: any) {
+      message.error(error.message || '文件上传失败')
+      return false
+    } finally {
+      setUploading(false)
+    }
+  }, [serverId, currentPath, loadDirectory])
+
+  // 保存文件
+  const handleSaveFile = async () => {
+    if (!serverId || !editingFile) return
+
+    setSaving(true)
+    try {
+      await multiServerApi.saveFileContent(serverId, editingFile.path, fileContent)
+      message.success('文件保存成功')
+      setEditDrawerVisible(false)
+      setEditingFile(null)
+      setFileContent('')
+    } catch (error: any) {
+      message.error(error.message || '文件保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // 取消编辑
+  const handleCancelEdit = () => {
+    setEditDrawerVisible(false)
+    setEditingFile(null)
+    setFileContent('')
+  }
 
   // 初始加载（加载home目录）
   useEffect(() => {
