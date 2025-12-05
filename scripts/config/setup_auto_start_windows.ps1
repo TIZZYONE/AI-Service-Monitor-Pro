@@ -6,7 +6,7 @@
 #   - setup_auto_start_frontend.ps1  (只配置前端)
 # 编码: UTF-8
 
-# 设置控制台编码为UTF-8
+# 1设置控制台编码为UTF-8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 chcp 65001 | Out-Null
