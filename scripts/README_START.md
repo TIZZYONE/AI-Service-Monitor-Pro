@@ -63,13 +63,32 @@ sudo ./scripts/config/setup_auto_start_linux.sh
 ### Windows系统
 
 **一键配置（推荐）：**
-1. 以管理员身份运行 PowerShell
-2. 执行：
-```powershell
-.\scripts\config\setup_auto_start_windows.ps1
-```
 
-详细配置说明请参考：`backend/auto_start_guide.md` 或 `scripts/README.md`
+Windows提供了三个配置脚本，可根据需要选择：
+
+1. **只配置后端开机启动：**
+   ```powershell
+   # 以管理员身份运行 PowerShell
+   .\scripts\config\setup_auto_start_backend.ps1
+   ```
+
+2. **只配置前端开机启动：**
+   ```powershell
+   # 以管理员身份运行 PowerShell
+   .\scripts\config\setup_auto_start_frontend.ps1
+   ```
+
+3. **同时配置前后端：**
+   ```powershell
+   # 以管理员身份运行 PowerShell
+   .\scripts\config\setup_auto_start_windows.ps1
+   ```
+
+**任务名称：**
+- 后端任务：`AI Service Monitor Pro - Backend`
+- 前端任务：`AI Service Monitor Pro - Frontend`
+
+详细配置说明请参考：`scripts/auto_start_guide.md`
 
 ## 📝 单独启动
 

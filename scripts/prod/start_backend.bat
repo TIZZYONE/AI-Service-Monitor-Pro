@@ -19,7 +19,7 @@ if not exist "%CONDA_EXE%" (
     )
 )
 
-REM 激活conda环境1
+REM 激活conda环境
 call conda activate AI-Service-Monitor-Pro
 
 REM 或者使用python虚拟环境（如果使用，取消下面的注释）

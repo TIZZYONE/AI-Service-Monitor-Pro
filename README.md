@@ -117,6 +117,27 @@ Vite 会选择一个可用端口（示例：`http://localhost:3458/`）。请以
 
 > 开发模式下，前端提供 `/config/servers` 读写接口，配置会持久化到 `frontend/data/servers.json`。
 
+## 开机自动启动配置
+
+### Windows系统
+
+Windows提供了三个独立的配置脚本：
+
+- **只配置后端**：`scripts\config\setup_auto_start_backend.ps1`
+- **只配置前端**：`scripts\config\setup_auto_start_frontend.ps1`
+- **同时配置前后端**：`scripts\config\setup_auto_start_windows.ps1`
+
+使用方法：以管理员身份运行 PowerShell，执行对应的配置脚本。
+
+### Linux系统
+
+```bash
+chmod +x scripts/config/setup_auto_start_linux.sh
+sudo ./scripts/config/setup_auto_start_linux.sh
+```
+
+详细配置说明请参考：`scripts/auto_start_guide.md`
+
 ## API 文档
 
 本项目未内置自动生成的 Swagger 文档；核心接口如下：
