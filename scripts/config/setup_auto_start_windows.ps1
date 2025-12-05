@@ -1,8 +1,11 @@
 # Windows 一键配置开机自动启动脚本
 # 使用方法: 以管理员身份运行 PowerShell，执行: .\setup_auto_start_windows.ps1
+# 编码: UTF-8 with BOM
 
 # 设置控制台编码为UTF-8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001 | Out-Null
 
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  AI Service Monitor Pro" -ForegroundColor Green
