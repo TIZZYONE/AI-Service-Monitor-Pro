@@ -422,17 +422,53 @@ class TaskScheduler:
                             
                             # 处理主程序命令，如果以python开头，替换为完整路径
                             if main_cmd.startswith('python '):
-                                main_cmd = main_cmd.replace('python ', f'"{python_exe}" ', 1)
+                                script_part = main_cmd.replace('python ', '', 1).strip()
+                                main_cmd = f'"{python_exe}" {script_part}'
                             elif main_cmd.startswith('python.exe '):
-                                main_cmd = main_cmd.replace('python.exe ', f'"{python_exe}" ', 1)
+                                script_part = main_cmd.replace('python.exe ', '', 1).strip()
+                                main_cmd = f'"{python_exe}" {script_part}'
                             else:
                                 # 如果主程序命令不是以python开头，直接使用python.exe执行
                                 # 例如：browser_agent.py -> "D:\...\python.exe" browser_agent.py
+                                script_part = main_cmd
                                 main_cmd = f'"{python_exe}" {main_cmd}'
                             
                             # 构建完整命令
                             if other_commands:
                                 # 有其他命令（如cd）
+                                # 从cd命令中提取目标目录，将主程序命令转换为绝对路径
+                                cd_dir = None
+                                for cmd in other_commands:
+                                    cmd_stripped = cmd.strip()
+                                    if cmd_stripped.lower().startswith('cd '):
+                                        # 提取cd后的路径（可能包含引号）
+                                        cd_target = cmd_stripped[3:].strip()
+                                        # 移除可能的引号
+                                        if cd_target.startswith('"') and cd_target.endswith('"'):
+                                            cd_target = cd_target[1:-1]
+                                        elif cd_target.startswith("'") and cd_target.endswith("'"):
+                                            cd_target = cd_target[1:-1]
+                                        cd_dir = cd_target
+                                        break
+                                
+                                # 如果找到了cd目录，且主程序命令是相对路径，转换为绝对路径
+                                if cd_dir and os.path.exists(cd_dir):
+                                    # 解析script_part（移除可能的引号）
+                                    script_path = script_part.strip()
+                                    if script_path.startswith('"') and script_path.endswith('"'):
+                                        script_path = script_path[1:-1]
+                                    elif script_path.startswith("'") and script_path.endswith("'"):
+                                        script_path = script_path[1:-1]
+                                    
+                                    # 如果脚本路径不是绝对路径，转换为绝对路径
+                                    if not os.path.isabs(script_path):
+                                        script_path = os.path.join(cd_dir, script_path)
+                                        script_path = os.path.normpath(script_path)
+                                    
+                                    # 重新构建main_cmd，使用绝对路径
+                                    main_cmd = f'"{python_exe}" "{script_path}"'
+                                    logger.info(f"任务 {task_id} 将主程序命令转换为绝对路径: {script_path}")
+                                
                                 other_cmd = ' && '.join(other_commands)
                                 # 使用cmd /c执行，确保cd命令能正确工作
                                 original_command = f'cmd /c "{other_cmd} && {main_cmd}"'
