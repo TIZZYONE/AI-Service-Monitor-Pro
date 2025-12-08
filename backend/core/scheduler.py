@@ -466,12 +466,29 @@ class TaskScheduler:
                                         script_path = os.path.normpath(script_path)
                                     
                                     # 重新构建main_cmd，使用绝对路径
-                                    main_cmd = f'"{python_exe}" "{script_path}"'
+                                    # 由于使用了绝对路径，不需要cd命令
+                                    # 直接构建python命令，避免嵌套引号问题
+                                    # 在Windows cmd中，路径包含空格时才需要引号，否则可以不用引号
+                                    # 但为了安全，我们仍然使用引号，但通过移除cd来避免嵌套
+                                    
+                                    # 检查路径中是否有空格，决定是否需要引号
+                                    if ' ' in python_exe or ' ' in script_path:
+                                        # 有空格，需要使用引号，但避免嵌套：不保留cd命令
+                                        main_cmd = f'"{python_exe}" "{script_path}"'
+                                    else:
+                                        # 无空格，可以不用引号
+                                        main_cmd = f'{python_exe} {script_path}'
+                                    
                                     logger.info(f"任务 {task_id} 将主程序命令转换为绝对路径: {script_path}")
-                                
-                                other_cmd = ' && '.join(other_commands)
-                                # 使用cmd /c执行，确保cd命令能正确工作
-                                original_command = f'cmd /c "{other_cmd} && {main_cmd}"'
+                                    
+                                    # 由于使用绝对路径，不需要cd命令，直接执行
+                                    # 但如果脚本需要在特定目录下运行，可以考虑使用subprocess的cwd参数
+                                    # 这里直接执行，不保留cd命令，避免引号嵌套问题
+                                    original_command = f'cmd /c "{main_cmd}"'
+                                else:
+                                    # 没有找到cd目录，使用原来的方式
+                                    other_cmd = ' && '.join(other_commands)
+                                    original_command = f'cmd /c "{other_cmd} && {main_cmd}"'
                             else:
                                 # 只有conda activate，直接使用python.exe执行
                                 # 使用cmd /c执行

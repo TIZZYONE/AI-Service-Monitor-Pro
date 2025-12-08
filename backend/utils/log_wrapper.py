@@ -406,8 +406,14 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
         
         if platform.system().lower() == 'windows':
             # Windows 上使用 cmd /c 执行命令
-            # 将命令用引号包裹，防止被拆分
-            cmd_line = f'cmd /c "{actual_command}"'
+            # 检查命令是否已经包含 cmd /c，如果已经包含，直接使用；否则添加
+            if actual_command.strip().startswith('cmd /c '):
+                # 命令已经包含 cmd /c，直接使用
+                cmd_line = actual_command
+            else:
+                # 将命令用引号包裹，防止被拆分
+                cmd_line = f'cmd /c "{actual_command}"'
+            
             process = subprocess.Popen(
                 cmd_line,
                 shell=True,  # 使用 shell
