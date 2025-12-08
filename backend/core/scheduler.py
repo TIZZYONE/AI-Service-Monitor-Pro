@@ -16,6 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 from core.database import AsyncSessionLocal
 from services.task_service import TaskService
 from services.log_service import LogService
+from services.system_config_service import SystemConfigService
 from models.task import Task, TaskStatus, RepeatType
 
 # 配置日志
@@ -326,25 +327,143 @@ class TaskScheduler:
                 self.task_log_files[task_id] = log_file_path
                 logger.info(f"任务 {task_id} 日志条目已创建，ID: {log_entry.id}")
                 
-                # 构建完整的命令 - 简化逻辑，直接组合用户提供的命令
+                # 构建完整的命令
                 import platform
                 import re
                 system = platform.system().lower()
                 
-                # 简单组合激活命令和主程序命令
-                if task.activate_env_command and task.activate_env_command.strip():
+                # Windows下：如果激活命令包含conda activate，直接使用python.exe
+                if system == 'windows' and 'conda activate' in task.activate_env_command:
+                    # 从激活命令中提取环境名称
+                    activate_cmd = task.activate_env_command.strip()
+                    env_name = None
+                    other_commands = []
+                    
+                    # 解析激活命令，提取环境名称和其他命令
+                    if ' && ' in activate_cmd:
+                        parts = activate_cmd.split(' && ', 1)
+                        conda_part = parts[0].strip()
+                        other_part = parts[1].strip() if len(parts) > 1 else None
+                    elif ' ; ' in activate_cmd:
+                        parts = activate_cmd.split(' ; ', 1)
+                        conda_part = parts[0].strip()
+                        other_part = parts[1].strip() if len(parts) > 1 else None
+                    elif '&&' in activate_cmd:
+                        parts = activate_cmd.split('&&', 1)
+                        conda_part = parts[0].strip()
+                        other_part = parts[1].strip() if len(parts) > 1 else None
+                    elif ';' in activate_cmd:
+                        parts = activate_cmd.split(';', 1)
+                        conda_part = parts[0].strip()
+                        other_part = parts[1].strip() if len(parts) > 1 else None
+                    else:
+                        conda_part = activate_cmd
+                        other_part = None
+                    
+                    # 从conda_part中提取环境名称
+                    if 'conda activate' in conda_part:
+                        env_name = conda_part.replace('conda activate', '').strip()
+                    if other_part:
+                        other_commands.append(other_part)
+                    
+                    # 获取conda envs路径（仅Windows需要）
+                    conda_envs_path = None
+                    conda_base = None
+                    
+                    # 优先从数据库配置读取（仅Windows）
+                    try:
+                        async with AsyncSessionLocal() as db:
+                            config_service = SystemConfigService(db)
+                            conda_envs_path = await config_service.get_config_value('conda_envs_path')
+                            if conda_envs_path:
+                                conda_envs_path = conda_envs_path.strip()
+                                if conda_envs_path and os.path.exists(conda_envs_path):
+                                    # 从envs路径推导conda_base
+                                    conda_base = os.path.dirname(conda_envs_path)
+                                    logger.info(f"任务 {task_id} 从数据库配置读取Conda环境路径: {conda_envs_path}")
+                    except Exception as e:
+                        logger.warning(f"任务 {task_id} 从数据库读取conda_envs_path失败: {e}")
+                    
+                    # 如果数据库没有配置，从环境变量获取
+                    if not conda_envs_path:
+                        # 优先从环境变量CONDA_ENVS_PATH直接获取
+                        conda_envs_path = os.environ.get('CONDA_ENVS_PATH', '').strip()
+                        if conda_envs_path and os.path.exists(conda_envs_path):
+                            # 从envs路径推导conda_base
+                            conda_base = os.path.dirname(conda_envs_path)
+                            logger.info(f"任务 {task_id} 从环境变量CONDA_ENVS_PATH读取: {conda_envs_path}")
+                        else:
+                            # 从环境变量CONDA_BASE获取
+                            conda_base = os.environ.get('CONDA_BASE', '').strip()
+                            if conda_base:
+                                conda_envs_path = os.path.join(conda_base, 'envs')
+                                if not os.path.exists(conda_envs_path):
+                                    conda_envs_path = None
+                                else:
+                                    logger.info(f"任务 {task_id} 从环境变量CONDA_BASE推导: {conda_envs_path}")
+                    
+                    logger.info(f"任务 {task_id} Conda环境路径: {conda_envs_path}, Conda根目录: {conda_base}")
+                    
+                    # 构建python.exe路径
+                    if env_name and conda_envs_path:
+                        if env_name.lower() == 'base':
+                            # base环境使用conda根目录的python.exe
+                            python_exe = os.path.join(conda_base, 'python.exe')
+                        else:
+                            # 其他环境使用envs下的python.exe
+                            python_exe = os.path.join(conda_envs_path, env_name, 'python.exe')
+                        
+                        # 验证python.exe是否存在
+                        if os.path.exists(python_exe):
+                            logger.info(f"任务 {task_id} 找到Python解释器: {python_exe}")
+                            
+                            # 构建命令：cd到目录（如果有），然后使用python.exe执行主程序
+                            main_cmd = task.main_program_command.strip()
+                            
+                            # 处理主程序命令，如果以python开头，替换为完整路径
+                            if main_cmd.startswith('python '):
+                                main_cmd = main_cmd.replace('python ', f'"{python_exe}" ', 1)
+                            elif main_cmd.startswith('python.exe '):
+                                main_cmd = main_cmd.replace('python.exe ', f'"{python_exe}" ', 1)
+                            else:
+                                # 如果主程序命令不是以python开头，直接使用python.exe执行
+                                # 例如：browser_agent.py -> "D:\...\python.exe" browser_agent.py
+                                main_cmd = f'"{python_exe}" {main_cmd}'
+                            
+                            # 构建完整命令
+                            if other_commands:
+                                # 有其他命令（如cd）
+                                other_cmd = ' && '.join(other_commands)
+                                # 使用cmd /c执行，确保cd命令能正确工作
+                                original_command = f'cmd /c "{other_cmd} && {main_cmd}"'
+                            else:
+                                # 只有conda activate，直接使用python.exe执行
+                                # 使用cmd /c执行
+                                original_command = f'cmd /c "{main_cmd}"'
+                        else:
+                            # python.exe不存在，回退到原始命令
+                            logger.warning(f"任务 {task_id} Python解释器不存在: {python_exe}，回退到原始命令")
+                            activate_cmd = re.sub(r'\s*;\s*', ' && ', activate_cmd)
+                            original_command = f'cmd /c "{activate_cmd} && {task.main_program_command.strip()}"'
+                    else:
+                        # 无法获取环境名称或conda路径，回退到原始命令
+                        if not env_name:
+                            logger.warning(f"任务 {task_id} 无法从激活命令中提取环境名称: {task.activate_env_command}")
+                        if not conda_envs_path:
+                            logger.warning(f"任务 {task_id} 无法获取conda环境路径，请设置环境变量CONDA_ENVS_PATH或CONDA_BASE")
+                        activate_cmd = re.sub(r'\s*;\s*', ' && ', activate_cmd)
+                        original_command = f'cmd /c "{activate_cmd} && {task.main_program_command.strip()}"'
+                elif task.activate_env_command and task.activate_env_command.strip():
+                    # 非Windows或非conda activate，使用原始逻辑
                     activate_cmd = task.activate_env_command.strip()
                     main_cmd = task.main_program_command.strip()
                     
                     if system == 'windows':
-                        # Windows cmd 中使用 & 连接命令
-                        # 如果激活命令中包含分号（PowerShell格式），需要转换为 cmd 格式
-                        # 将命令间的分号替换为 &，但保留路径等上下文中的分号
-                        # 简单处理：将 " ; " 替换为 " & "，将单独的 ";" 也替换为 " & "
-                        activate_cmd = re.sub(r'\s*;\s*', ' & ', activate_cmd)
-                        original_command = f"{activate_cmd} & {main_cmd}"
+                        # Windows cmd 中使用 && 连接命令
+                        activate_cmd = re.sub(r'\s*;\s*', ' && ', activate_cmd)
+                        original_command = f"{activate_cmd} && {main_cmd}"
                     else:
-                        original_command = f"{activate_cmd} ; {main_cmd}"
+                        original_command = f"{activate_cmd} && {main_cmd}"
                 else:
                     # 没有激活命令，直接使用主程序命令
                     original_command = task.main_program_command.strip()

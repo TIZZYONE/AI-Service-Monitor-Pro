@@ -28,7 +28,7 @@ Base = declarative_base()
 async def init_db():
     """初始化数据库"""
     # 导入所有模型以确保它们被注册到Base.metadata
-    from models import task, log
+    from models import task, log, system_config
     
     async with engine.begin() as conn:
         # 创建所有表

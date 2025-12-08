@@ -46,6 +46,7 @@ export interface ServerConfig {
   host: string
   port: number
   description?: string
+  conda_envs_path?: string  // Conda环境路径，例如：D:\ProgramData\anaconda3\envs
 }
 
 export interface Task {

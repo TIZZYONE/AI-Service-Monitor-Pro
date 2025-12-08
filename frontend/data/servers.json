@@ -16,5 +16,12 @@
     "host": "localhost",
     "port": 8633,
     "id": "1761889752965"
+  },
+  {
+    "name": "本机",
+    "host": "10.2.3.61",
+    "port": 8633,
+    "id": "1764929491933",
+    "conda_envs_path": "D:\\ProgramData\\anaconda3\\envs"
   }
 ]

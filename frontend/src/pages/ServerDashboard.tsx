@@ -96,6 +96,45 @@ const ServerDashboard: React.FC = () => {
         serverConfigManager.addServer(values)
         message.success('服务器添加成功')
       }
+      
+      // 如果配置了 conda_envs_path（Windows 系统配置），保存到数据库
+      // 注意：conda_envs_path 是全局系统配置，保存到当前编辑的服务器对应的后端
+      if (values.conda_envs_path) {
+        try {
+          // 获取当前编辑的服务器URL（如果是编辑模式）或新服务器的URL
+          const serverId = editingServer ? editingServer.id : (values.id || null)
+          let baseUrl = 'http://localhost:8633' // 默认值
+          
+          if (serverId) {
+            const serverUrl = serverConfigManager.getServerUrl(serverId)
+            if (serverUrl) {
+              baseUrl = serverUrl
+            }
+          } else if (values.host && values.port) {
+            // 如果是新服务器，使用配置的host和port
+            baseUrl = `http://${values.host}:${values.port}`
+          }
+          
+          const response = await fetch(`${baseUrl}/api/config/conda_envs_path/value`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              value: values.conda_envs_path,
+              description: 'Windows Conda环境路径配置（仅Windows需要）'
+            }),
+          })
+          if (response.ok) {
+            console.log('Conda环境路径已保存到数据库')
+          } else {
+            console.warn('保存Conda环境路径到数据库失败:', await response.text())
+          }
+        } catch (error) {
+          console.warn('保存Conda环境路径到数据库时出错:', error)
+        }
+      }
+      
       setConfigModalVisible(false)
       loadServers()
     } catch (error) {
@@ -374,6 +413,13 @@ const ServerDashboard: React.FC = () => {
             label="描述"
           >
             <Input.TextArea placeholder="服务器描述信息（可选）" rows={3} />
+          </Form.Item>
+          <Form.Item
+            name="conda_envs_path"
+            label="Conda环境路径"
+            tooltip="Windows下Conda环境的路径，例如：D:\\ProgramData\\anaconda3\\envs（可选，用于直接使用python.exe执行任务）"
+          >
+            <Input placeholder="例如：D:\ProgramData\anaconda3\envs" />
           </Form.Item>
         </Form>
       </Modal>

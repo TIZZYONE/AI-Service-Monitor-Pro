@@ -300,6 +300,12 @@ def _build_conda_init_command(command: str):
     """
     import platform
     
+    # 如果命令已经是 cmd /c "..." 格式，说明已经被 scheduler.py 处理过了
+    # 不应该再包装，直接返回原命令
+    if command.strip().startswith('cmd /c "'):
+        print(f"DEBUG: Command already wrapped with cmd /c, skipping conda init wrapper", file=sys.stderr)
+        return command
+    
     # 检查命令中是否包含 conda activate
     has_conda_activate = 'conda activate' in command.lower()
     
