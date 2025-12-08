@@ -451,40 +451,49 @@ class TaskScheduler:
                                         cd_dir = cd_target
                                         break
                                 
-                                # 如果找到了cd目录，且主程序命令是相对路径，转换为绝对路径
+                                # 如果找到了cd目录，保留cd命令，脚本使用相对路径
+                                # 这样可以确保脚本在正确的目录下运行，能够找到相对路径的资源文件
                                 if cd_dir and os.path.exists(cd_dir):
-                                    # 解析script_part（移除可能的引号）
-                                    script_path = script_part.strip()
-                                    if script_path.startswith('"') and script_path.endswith('"'):
-                                        script_path = script_path[1:-1]
-                                    elif script_path.startswith("'") and script_path.endswith("'"):
-                                        script_path = script_path[1:-1]
+                                    # 解析script_part（移除可能的引号），保持为相对路径
+                                    script_name = script_part.strip()
+                                    if script_name.startswith('"') and script_name.endswith('"'):
+                                        script_name = script_name[1:-1]
+                                    elif script_name.startswith("'") and script_name.endswith("'"):
+                                        script_name = script_name[1:-1]
                                     
-                                    # 如果脚本路径不是绝对路径，转换为绝对路径
-                                    if not os.path.isabs(script_path):
-                                        script_path = os.path.join(cd_dir, script_path)
-                                        script_path = os.path.normpath(script_path)
-                                    
-                                    # 重新构建main_cmd，使用绝对路径
-                                    # 由于使用了绝对路径，不需要cd命令
-                                    # 直接构建python命令，避免嵌套引号问题
-                                    # 在Windows cmd中，路径包含空格时才需要引号，否则可以不用引号
-                                    # 但为了安全，我们仍然使用引号，但通过移除cd来避免嵌套
-                                    
-                                    # 检查路径中是否有空格，决定是否需要引号
-                                    if ' ' in python_exe or ' ' in script_path:
-                                        # 有空格，需要使用引号，但避免嵌套：不保留cd命令
-                                        main_cmd = f'"{python_exe}" "{script_path}"'
+                                    # 构建cd命令，使用 /d 参数以支持跨驱动器切换
+                                    # 对于cd命令，路径通常不需要引号（除非包含特殊字符）
+                                    if ' ' in cd_dir:
+                                        cd_cmd = f'cd /d "{cd_dir}"'
                                     else:
-                                        # 无空格，可以不用引号
-                                        main_cmd = f'{python_exe} {script_path}'
+                                        cd_cmd = f'cd /d {cd_dir}'
                                     
-                                    logger.info(f"任务 {task_id} 将主程序命令转换为绝对路径: {script_path}")
+                                    # 构建python命令
+                                    # Windows cmd中处理嵌套引号的方法：
+                                    # 方法1：使用转义引号 \"（在Python字符串中用 \\" 表示）
+                                    # 方法2：避免嵌套，使用不同的命令结构
+                                    # 这里使用方法1：在外层引号内，内层引号用 \" 转义
+                                    if ' ' in python_exe:
+                                        # python.exe路径包含空格，需要引号
+                                        # 在Python f-string中，\\" 会生成 \"，传递给cmd后会被解释为转义的双引号
+                                        python_part = f'\\"{python_exe}\\"'
+                                    else:
+                                        # 路径无空格，不需要引号
+                                        python_part = python_exe
                                     
-                                    # 由于使用绝对路径，不需要cd命令，直接执行
-                                    # 但如果脚本需要在特定目录下运行，可以考虑使用subprocess的cwd参数
-                                    # 这里直接执行，不保留cd命令，避免引号嵌套问题
-                                    original_command = f'cmd /c "{main_cmd}"'
+                                    # script_name通常是相对路径（如 api.py），通常不需要引号
+                                    if ' ' in script_name:
+                                        script_part_final = f'\\"{script_name}\\"'
+                                    else:
+                                        script_part_final = script_name
+                                    
+                                    # 构建完整命令：cd到目录，然后执行python脚本（使用相对路径）
+                                    # 这样脚本的工作目录就是cd后的目录，能够正确找到相对路径的资源文件
+                                    # 外层用 cmd /c "..." 包裹，内层引号用 \" 转义
+                                    original_command = f'cmd /c "{cd_cmd} && {python_part} {script_part_final}"'
+                                    
+                                    logger.info(f"任务 {task_id} 保留cd命令到目录: {cd_dir}")
+                                    logger.info(f"任务 {task_id} 使用相对路径脚本: {script_name}")
                                 else:
                                     # 没有找到cd目录，使用原来的方式
                                     other_cmd = ' && '.join(other_commands)
