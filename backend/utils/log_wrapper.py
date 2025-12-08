@@ -414,12 +414,15 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
                 # 将命令用引号包裹，防止被拆分
                 cmd_line = f'cmd /c "{actual_command}"'
             
+            # 设置编码为UTF-8，并使用errors='replace'处理无法解码的字节
+            # 这样可以避免在Windows上因为进程输出UTF-8编码但系统默认GBK导致的解码错误
             process = subprocess.Popen(
                 cmd_line,
                 shell=True,  # 使用 shell
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True,
+                encoding='utf-8',  # 明确指定UTF-8编码
+                errors='replace',  # 遇到无法解码的字节时用替换字符代替，避免崩溃
                 bufsize=1  # 行缓冲
             )
         else:
@@ -429,7 +432,8 @@ def run_command_with_log_rotation(command: str, log_dir: str, task_id: int, task
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True,
+                encoding='utf-8',  # 明确指定UTF-8编码
+                errors='replace',  # 遇到无法解码的字节时用替换字符代替，避免崩溃
                 bufsize=1  # 行缓冲
             )
         
