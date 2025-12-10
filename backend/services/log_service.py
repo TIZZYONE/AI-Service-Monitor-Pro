@@ -49,7 +49,7 @@ class LogService:
         return result.scalars().all()
     
     async def get_log_content(self, log_file_path: str, max_lines: int = 10000) -> tuple[str, int]:
-        """读取日志文件内容"""
+        """读取日志文件内容（优化：从文件末尾读取，避免读取整个大文件）"""
         # 如果传入的是相对路径，转换为绝对路径
         if not os.path.isabs(log_file_path):
             # 获取当前文件所在目录的绝对路径
@@ -60,6 +60,16 @@ class LogService:
             return f"日志文件不存在: {log_file_path}", 0
         
         try:
+            # 获取文件大小
+            file_size = os.path.getsize(log_file_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            # 如果文件大于5MB，使用优化的读取方式（只读取最后部分）
+            if file_size_mb > 5:
+                logger.info(f"日志文件较大 ({file_size_mb:.2f}MB)，使用优化读取方式")
+                return await self._read_log_tail(log_file_path, max_lines)
+            
+            # 小文件，使用原来的方式读取
             # 尝试多种编码方式读取
             encodings = ['utf-8', 'gbk', 'gb2312', 'cp936', 'latin-1']
             for encoding in encodings:
@@ -78,6 +88,115 @@ class LogService:
                     continue
             
             # 如果所有编码都失败，以二进制模式读取并忽略错误
+            async with aiofiles.open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = await f.readlines()
+                total_lines = len(lines)
+                
+                if total_lines > max_lines:
+                    lines = lines[-max_lines:]
+                
+                content = ''.join(lines)
+                return content, total_lines
+        except Exception as e:
+            logger.error(f"读取日志文件失败: {str(e)}")
+            return f"读取日志文件失败: {str(e)}", 0
+    
+    async def _read_log_tail(self, log_file_path: str, max_lines: int) -> tuple[str, int]:
+        """从文件末尾读取最后max_lines行（优化大文件读取）"""
+        try:
+            # 估算：假设平均每行100字符，max_lines行约需要 max_lines * 100 字节
+            # 为了安全，读取更多内容（3倍），确保能获取足够的行数
+            estimated_size = max_lines * 300  # 每行约300字节（包括中文字符）
+            # 限制最大读取大小为5MB
+            read_size = min(estimated_size, 5 * 1024 * 1024)
+            
+            file_size = os.path.getsize(log_file_path)
+            start_pos = max(0, file_size - read_size)
+            
+            # 尝试多种编码
+            encodings = ['utf-8', 'gbk', 'gb2312', 'cp936', 'latin-1']
+            for encoding in encodings:
+                try:
+                    async with aiofiles.open(log_file_path, 'rb') as f:
+                        await f.seek(start_pos)
+                        tail_bytes = await f.read()
+                        
+                        # 尝试解码
+                        try:
+                            tail_text = tail_bytes.decode(encoding, errors='ignore')
+                        except:
+                            continue
+                        
+                        # 如果从中间开始读取，跳过第一行（可能不完整）
+                        if start_pos > 0:
+                            first_newline = tail_text.find('\n')
+                            if first_newline > 0:
+                                tail_text = tail_text[first_newline + 1:]
+                        
+                        # 分割行并获取最后max_lines行
+                        lines = tail_text.splitlines(keepends=True)
+                        total_lines = self._count_total_lines(log_file_path)
+                        
+                        if len(lines) > max_lines:
+                            lines = lines[-max_lines:]
+                        
+                        content = ''.join(lines)
+                        return content, total_lines
+                except Exception as e:
+                    logger.debug(f"使用编码 {encoding} 读取失败: {str(e)}")
+                    continue
+            
+            # 如果所有编码都失败，使用utf-8并忽略错误
+            async with aiofiles.open(log_file_path, 'rb') as f:
+                await f.seek(start_pos)
+                tail_bytes = await f.read()
+                tail_text = tail_bytes.decode('utf-8', errors='replace')
+                
+                if start_pos > 0:
+                    first_newline = tail_text.find('\n')
+                    if first_newline > 0:
+                        tail_text = tail_text[first_newline + 1:]
+                
+                lines = tail_text.splitlines(keepends=True)
+                total_lines = self._count_total_lines(log_file_path)
+                
+                if len(lines) > max_lines:
+                    lines = lines[-max_lines:]
+                
+                content = ''.join(lines)
+                return content, total_lines
+                
+        except Exception as e:
+            logger.error(f"从文件末尾读取日志失败: {str(e)}")
+            # 回退到原始方法
+            return await self._read_log_fallback(log_file_path, max_lines)
+    
+    def _count_total_lines(self, log_file_path: str) -> int:
+        """快速统计文件总行数（用于大文件）"""
+        try:
+            # 使用二进制模式快速统计换行符
+            line_count = 0
+            with open(log_file_path, 'rb') as f:
+                # 读取大块数据以提高效率
+                chunk_size = 1024 * 1024  # 1MB块
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    line_count += chunk.count(b'\n')
+            return line_count
+        except:
+            # 如果统计失败，返回一个估算值
+            try:
+                file_size = os.path.getsize(log_file_path)
+                # 假设平均每行100字节
+                return int(file_size / 100)
+            except:
+                return 0
+    
+    async def _read_log_fallback(self, log_file_path: str, max_lines: int) -> tuple[str, int]:
+        """回退方法：读取整个文件（用于小文件或优化方法失败时）"""
+        try:
             async with aiofiles.open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
                 lines = await f.readlines()
                 total_lines = len(lines)

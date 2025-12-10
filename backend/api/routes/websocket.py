@@ -15,6 +15,10 @@ from services.log_service import LogService
 
 logger = logging.getLogger(__name__)
 
+# WebSocket日志读取限制配置
+MAX_WEBSOCKET_LINES = 10000  # WebSocket初始读取最大行数
+MAX_FILE_SIZE_MB = 10  # 最大文件大小（MB），超过此大小将只读取最后部分
+
 router = APIRouter()
 
 # 存储WebSocket连接
@@ -94,18 +98,39 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
                 latest_log = logs[0]
                 log_file_path = latest_log.log_file_path
                 
-                # 发送现有日志内容
+                # 发送现有日志内容（限制大小，防止内存溢出）
                 if os.path.exists(log_file_path):
                     try:
-                        with open(log_file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
+                        # 检查文件大小
+                        file_size = os.path.getsize(log_file_path)
+                        file_size_mb = file_size / (1024 * 1024)
+                        
+                        # 如果文件过大，使用log_service的方法读取（有限制）
+                        if file_size_mb > MAX_FILE_SIZE_MB:
+                            logger.warning(f"任务 {task_id} 日志文件过大 ({file_size_mb:.2f}MB)，只读取最后 {MAX_WEBSOCKET_LINES} 行")
+                            content, total_lines = await log_service.get_log_content(log_file_path, MAX_WEBSOCKET_LINES)
                             if content:
                                 await websocket.send_text(json.dumps({
                                     "type": "initial_log",
                                     "task_id": task_id,
-                                    "content": content
+                                    "content": content,
+                                    "truncated": True,
+                                    "total_lines": total_lines,
+                                    "message": f"日志文件过大，只显示最后 {MAX_WEBSOCKET_LINES} 行（共 {total_lines} 行）"
+                                }))
+                        else:
+                            # 文件大小正常，读取全部内容
+                            content, total_lines = await log_service.get_log_content(log_file_path, MAX_WEBSOCKET_LINES)
+                            if content:
+                                await websocket.send_text(json.dumps({
+                                    "type": "initial_log",
+                                    "task_id": task_id,
+                                    "content": content,
+                                    "truncated": total_lines > MAX_WEBSOCKET_LINES,
+                                    "total_lines": total_lines
                                 }))
                     except Exception as e:
+                        logger.error(f"读取任务 {task_id} 日志文件失败: {str(e)}")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "task_id": task_id,
@@ -141,19 +166,40 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
                             log_file_path = current_log_path
                             last_size = 0  # 重置文件大小，从头开始读取新文件
                             
-                            # 发送新文件的初始内容
+                            # 发送新文件的初始内容（限制大小）
                             if os.path.exists(log_file_path):
                                 try:
-                                    with open(log_file_path, 'r', encoding='utf-8') as f:
-                                        content = f.read()
+                                    # 检查文件大小
+                                    file_size = os.path.getsize(log_file_path)
+                                    file_size_mb = file_size / (1024 * 1024)
+                                    
+                                    # 如果文件过大，使用log_service的方法读取（有限制）
+                                    if file_size_mb > MAX_FILE_SIZE_MB:
+                                        logger.warning(f"任务 {task_id} 新日志文件过大 ({file_size_mb:.2f}MB)，只读取最后 {MAX_WEBSOCKET_LINES} 行")
+                                        content, total_lines = await log_service.get_log_content(log_file_path, MAX_WEBSOCKET_LINES)
                                         if content:
                                             await websocket.send_text(json.dumps({
                                                 "type": "initial_log",
                                                 "task_id": task_id,
-                                                "content": content
+                                                "content": content,
+                                                "truncated": True,
+                                                "total_lines": total_lines,
+                                                "message": f"日志文件过大，只显示最后 {MAX_WEBSOCKET_LINES} 行（共 {total_lines} 行）"
+                                            }))
+                                    else:
+                                        # 文件大小正常，读取全部内容（但限制行数）
+                                        content, total_lines = await log_service.get_log_content(log_file_path, MAX_WEBSOCKET_LINES)
+                                        if content:
+                                            await websocket.send_text(json.dumps({
+                                                "type": "initial_log",
+                                                "task_id": task_id,
+                                                "content": content,
+                                                "truncated": total_lines > MAX_WEBSOCKET_LINES,
+                                                "total_lines": total_lines
                                             }))
                                     last_size = os.path.getsize(log_file_path)
                                 except Exception as e:
+                                    logger.error(f"读取任务 {task_id} 新日志文件失败: {str(e)}")
                                     await websocket.send_text(json.dumps({
                                         "type": "error",
                                         "task_id": task_id,
@@ -166,17 +212,43 @@ async def websocket_logs(websocket: WebSocket, task_id: int):
                         if current_size > last_size:
                             # 文件有新内容
                             try:
-                                with open(log_file_path, 'r', encoding='utf-8') as f:
-                                    f.seek(last_size)
-                                    new_content = f.read()
-                                    if new_content:
-                                        await websocket.send_text(json.dumps({
-                                            "type": "log_update",
-                                            "task_id": task_id,
-                                            "content": new_content
-                                        }))
+                                # 检查增量大小，如果增量过大（超过1MB），限制读取
+                                increment_size = current_size - last_size
+                                increment_size_mb = increment_size / (1024 * 1024)
+                                
+                                if increment_size_mb > 1.0:  # 增量超过1MB
+                                    logger.warning(f"任务 {task_id} 日志增量过大 ({increment_size_mb:.2f}MB)，限制读取")
+                                    # 只读取最后部分（约1000行，假设每行100字符）
+                                    read_size = min(100 * 1024, increment_size)  # 最多读取100KB
+                                    with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                        f.seek(max(0, current_size - read_size))
+                                        new_content = f.read()
+                                        if new_content:
+                                            # 跳过可能不完整的首行
+                                            first_newline = new_content.find('\n')
+                                            if first_newline > 0:
+                                                new_content = new_content[first_newline + 1:]
+                                            await websocket.send_text(json.dumps({
+                                                "type": "log_update",
+                                                "task_id": task_id,
+                                                "content": new_content,
+                                                "truncated": True,
+                                                "message": "日志增量过大，只显示最新部分"
+                                            }))
+                                else:
+                                    # 增量正常，正常读取
+                                    with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                        f.seek(last_size)
+                                        new_content = f.read()
+                                        if new_content:
+                                            await websocket.send_text(json.dumps({
+                                                "type": "log_update",
+                                                "task_id": task_id,
+                                                "content": new_content
+                                            }))
                                 last_size = current_size
                             except Exception as e:
+                                logger.error(f"读取任务 {task_id} 新日志内容失败: {str(e)}")
                                 await websocket.send_text(json.dumps({
                                     "type": "error",
                                     "task_id": task_id,
